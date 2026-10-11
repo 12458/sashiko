@@ -19,6 +19,7 @@ pub const KNOWN_MAILING_LIST_DOMAINS: &[&str] = &[
     "lists.linaro.org",
     "lists.01.org",
     "lists.xenproject.org",
+    "lists.ozlabs.org",
 ];
 
 #[derive(Debug, PartialEq, Eq)]
