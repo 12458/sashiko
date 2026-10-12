@@ -4105,14 +4105,17 @@
             }
 
             let currentStatus = data.status || 'Pending';
+            const embargoBadgeTitle = (currentStatus === 'Embargoed' && data.embargo_until)
+                ? ` title="${escapeHtml('Embargoed until ' + new Date(data.embargo_until * 1000).toLocaleString())}"`
+                : '';
 
             document.getElementById('app').innerHTML = `
                 <div class="nav"><a href="#/" onclick="event.preventDefault(); goBack();">← Back</a></div>
                 <h1>
                     <span>${escapeHtml(data.subject) || '(no subject)'}</span>
                     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0;">
-                        <span class="status-badge status-${currentStatus.replace(/ /g, '')}">${currentStatus}</span>
-                        ${(currentStatus === 'Embargoed' && data.can_release_embargo) ? `
+                        <span class="status-badge status-${currentStatus.replace(/ /g, '')}"${embargoBadgeTitle}>${currentStatus}</span>
+                        ${data.can_release_embargo ? `
                             <button id="releaseEmbargoBtn" class="embargo-release-btn" onclick="releasePatchsetEmbargo(${Number(data.id)}, this)" title="Release the review embargo on this patchset immediately">Release Embargo</button>
                         ` : ''}
                     </div>

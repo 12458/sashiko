@@ -218,14 +218,14 @@ when the payload changes.
 | `GET /health` | `health_check` | — |
 | `GET /api/config` | `get_config` | — (reports `is_authorized` results per `Permission`) |
 | `GET /api/lists` | `list_mailing_lists` | — |
-| `GET /api/patchsets` | `list_patchsets` | — |
+| `GET /api/patchsets` | `list_patchsets` | `OptionalPrincipal` (populates finding counts on `Embargoed` rows for authorized maintainers without mutating the shared homepage cache) |
 | `GET /api/messages` | `list_messages` | — |
 | `GET /api/message` | `get_message` | — |
-| `GET /api/patchset` | `get_patchset_summary` | `OptionalPrincipal` (computes `can_release_embargo`; payload carries no `bugs` key) |
+| `GET /api/patchset` | `get_patchset_summary` | `OptionalPrincipal` (computes `can_view_embargoed`/`can_release_embargo` and populates `reviews` when `can_view_embargoed`; payload carries no `bugs` key) |
 | `GET /api/stats`, `/api/stats/timeline`, `/api/stats/reviews`, `/api/stats/tools` | `get_stats`, `stats_*` | — |
-| `GET /api/patch` | `get_patchset` | `OptionalPrincipal` + `redact_embedded_bugs` (and computes `can_release_embargo`) |
-| `GET /api/review` | `get_review` | `OptionalPrincipal` + `redact_embedded_bugs` |
-| `GET /api/review_log` | `get_review_log` | `OptionalPrincipal` + `redact_embedded_bugs` |
+| `GET /api/patch` | `get_patchset` | `OptionalPrincipal` + `redact_embedded_bugs` (computes `can_view_embargoed`/`can_release_embargo` and populates `reviews` when `can_view_embargoed`) |
+| `GET /api/review` | `get_review` | `OptionalPrincipal` + `enforce_review_embargo` + `redact_embedded_bugs` |
+| `GET /api/review_log` | `get_review_log` | `OptionalPrincipal` + `enforce_review_embargo` + `redact_embedded_bugs` |
 | `POST /api/submit` | `submit_patch` | `read_only` + `Permission::Ingest` |
 | `POST /api/patchset/rerun` | `rerun_patchset` | `read_only` + `Permission::Review` |
 | `POST /api/patchset/release-embargo` | `release_patchset_embargo` | `read_only` + (`Permission::Review` or `principal.may_release_embargo(&authorizing_sections_for_patchset)`) |
@@ -325,9 +325,11 @@ a new arm should not copy it for non-database errors.
   `test_acl_blocklist_authorization_and_auth_endpoints`) and in
   `src/access.rs`/`src/settings.rs`. `tests/integration/` contains **no**
   authorization coverage. A new gate with no unit test has nothing holding it.
-- Patchset review embargo (`embargo_until`) is enforced inside the db queries
-  `get_patchset_details`/`get_patchset_summary`, not at the handler. It is a
-  separate axis from the ACL and does not travel with a new query.
+- Patchset review embargo (`embargo_until`) redacts `reviews` and finding
+  counts by default in `get_patchsets`/`get_patchset_details`/`get_patchset_summary`;
+  the HTTP handlers (`list_patchsets`, `get_patchset`, `get_patchset_summary`,
+  `get_review`, `get_review_log`) re-populate or allow access when
+  `resolve_patchset_embargo_access` grants `can_view_embargoed`.
 
 ## Checklist for a diff that touches this area
 

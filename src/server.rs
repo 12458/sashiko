@@ -674,6 +674,9 @@ async fn list_mailing_lists(
 }
 
 async fn list_patchsets(
+    auth: crate::auth::OptionalAuthUser,
+    OptionalPrincipal(principal): OptionalPrincipal,
+    headers: axum::http::HeaderMap,
     State(state): State<Arc<AppState>>,
     Query(pagination): Query<Pagination>,
 ) -> Result<Json<PatchsetsResponse>, StatusCode> {
@@ -681,7 +684,7 @@ async fn list_patchsets(
     let per_page = pagination.per_page.unwrap_or(50).clamp(1, 100);
     let offset = (page - 1) * per_page;
 
-    let items = if pagination.q.is_none()
+    let mut items = if pagination.q.is_none()
         && pagination.mailing_list.is_none()
         && page == 1
         && per_page == 50
@@ -708,6 +711,9 @@ async fn list_patchsets(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
+    populate_embargoed_patchset_findings(&state, &headers, auth.0.as_ref(), &principal, &mut items)
+        .await?;
+
     let total = if pagination.q.is_none() && pagination.mailing_list.is_none() {
         state
             .patchsets_count_cache
@@ -797,33 +803,48 @@ async fn list_messages(
     }))
 }
 
-async fn can_release_patchset_embargo(
-    state: &Arc<AppState>,
-    headers: &axum::http::HeaderMap,
-    auth: Option<&crate::auth::AuthUser>,
-    principal: &Principal,
-    patchset_id: i64,
-) -> Result<bool, StatusCode> {
-    if state.read_only {
-        return Ok(false);
-    }
+fn is_auth_blocklisted(state: &AppState, auth: Option<&crate::auth::AuthUser>) -> bool {
     if let Some(user) = auth {
         if state.settings.server.acl.is_blocklisted(&user.email) {
-            return Ok(false);
+            return true;
         }
         if user
             .sid
             .as_deref()
             .is_some_and(|sid| state.settings.server.acl.is_blocklisted(sid))
         {
-            return Ok(false);
+            return true;
         }
     }
-    if is_authorized(state, headers, auth, crate::settings::Permission::Review) {
-        return Ok(true);
+    false
+}
+
+/// Resolves `(can_view_embargoed, can_release_embargo)` for an embargoed
+/// patchset in a single pass.
+///
+/// Viewing embargoed results is a read operation: it is permitted in
+/// `read_only` mode and for read-scoped API tokens (`BugAccess::Read`), whereas
+/// releasing an embargo mutates state and requires `!state.read_only` and
+/// `BugAccess::Manage` (or `Permission::Review`).
+async fn resolve_patchset_embargo_access(
+    state: &Arc<AppState>,
+    headers: &axum::http::HeaderMap,
+    auth: Option<&crate::auth::AuthUser>,
+    principal: &Principal,
+    patchset_id: i64,
+) -> Result<(bool, bool), StatusCode> {
+    if is_auth_blocklisted(state, auth) {
+        return Ok((false, false));
     }
-    if principal.email().is_empty() && !principal.is_operator() {
-        return Ok(false);
+    if is_authorized(state, headers, auth, crate::settings::Permission::Review) {
+        return Ok((true, !state.read_only));
+    }
+    if !principal.has_any_embargo_visibility() {
+        return Ok((false, false));
+    }
+    if principal.has_global_embargo_visibility() {
+        let can_release = !state.read_only && principal.may_release_embargo(&[]);
+        return Ok((true, can_release));
     }
     let sections = state
         .db
@@ -834,22 +855,140 @@ async fn can_release_patchset_embargo(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
     let titles: Vec<SectionTitle> = sections.iter().map(|s| SectionTitle::new(s)).collect();
-    Ok(principal.may_release_embargo(&titles))
+    let can_view = principal.may_view_embargoed(&titles);
+    let can_release = !state.read_only && principal.may_release_embargo(&titles);
+    Ok((can_view, can_release))
 }
 
+async fn can_release_patchset_embargo(
+    state: &Arc<AppState>,
+    headers: &axum::http::HeaderMap,
+    auth: Option<&crate::auth::AuthUser>,
+    principal: &Principal,
+    patchset_id: i64,
+) -> Result<bool, StatusCode> {
+    let (_, can_release) =
+        resolve_patchset_embargo_access(state, headers, auth, principal, patchset_id).await?;
+    Ok(can_release)
+}
+
+/// Populates `findings_low/medium/high/critical` on embargoed rows in `items`
+/// when the caller is authorized to view embargoed results for those patchsets.
+async fn populate_embargoed_patchset_findings(
+    state: &Arc<AppState>,
+    headers: &axum::http::HeaderMap,
+    auth: Option<&crate::auth::AuthUser>,
+    principal: &Principal,
+    items: &mut [crate::db::PatchsetRow],
+) -> Result<(), StatusCode> {
+    if is_auth_blocklisted(state, auth) {
+        return Ok(());
+    }
+    let now = chrono::Utc::now().timestamp();
+    let embargoed_ids: Vec<i64> = items
+        .iter()
+        .filter(|row| {
+            row.status.as_deref() == Some("Embargoed")
+                || row.embargo_until.is_some_and(|until| until > now)
+        })
+        .map(|row| row.id)
+        .collect();
+    if embargoed_ids.is_empty() {
+        return Ok(());
+    }
+
+    let visible_ids: std::collections::HashSet<i64> =
+        if is_authorized(state, headers, auth, crate::settings::Permission::Review)
+            || principal.has_global_embargo_visibility()
+        {
+            embargoed_ids.iter().copied().collect()
+        } else if !principal.has_any_embargo_visibility() {
+            return Ok(());
+        } else {
+            let sections = state
+                .db
+                .authorizing_sections_for_patchsets(&embargoed_ids)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Database error resolving patchsets authority: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            embargoed_ids
+                .iter()
+                .copied()
+                .filter(|id| {
+                    let titles: Vec<SectionTitle> = sections
+                        .get(id)
+                        .map(|names| names.iter().map(|s| SectionTitle::new(s)).collect())
+                        .unwrap_or_default();
+                    principal.may_view_embargoed(&titles)
+                })
+                .collect()
+        };
+
+    if visible_ids.is_empty() {
+        return Ok(());
+    }
+
+    let visible_vec: Vec<i64> = visible_ids.iter().copied().collect();
+    let counts = state
+        .db
+        .get_patchset_finding_counts(&visible_vec)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error fetching embargoed finding counts: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    for row in items.iter_mut() {
+        if visible_ids.contains(&row.id) {
+            let (low, medium, high, critical) =
+                counts.get(&row.id).copied().unwrap_or((0, 0, 0, 0));
+            row.findings_low = Some(low);
+            row.findings_medium = Some(medium);
+            row.findings_high = Some(high);
+            row.findings_critical = Some(critical);
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn attach_patchset_flags(
     state: &Arc<AppState>,
     headers: &axum::http::HeaderMap,
     auth: Option<&crate::auth::AuthUser>,
     principal: &Principal,
     details: &mut serde_json::Value,
+    page: Option<u32>,
+    per_page: Option<u32>,
+    include_logs: bool,
 ) -> Result<(), StatusCode> {
-    let can_release = if details.get("status").and_then(|v| v.as_str()) == Some("Embargoed")
+    let now = chrono::Utc::now().timestamp();
+    let is_embargoed = details
+        .get("embargo_until")
+        .and_then(|v| v.as_i64())
+        .is_some_and(|until| until > now);
+    let (can_view, can_release) = if is_embargoed
         && let Some(ps_id) = details.get("id").and_then(|v| v.as_i64())
     {
-        can_release_patchset_embargo(state, headers, auth, principal, ps_id).await?
+        let (view, release) =
+            resolve_patchset_embargo_access(state, headers, auth, principal, ps_id).await?;
+        if view {
+            let reviews = state
+                .db
+                .get_embargoed_patchset_reviews(ps_id, page, per_page, include_logs)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Database error fetching embargoed patchset reviews: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            if let Some(obj) = details.as_object_mut() {
+                obj.insert("reviews".to_string(), serde_json::Value::Array(reviews));
+            }
+        }
+        (view, release)
     } else {
-        false
+        (false, false)
     };
     if let Some(obj) = details.as_object_mut() {
         obj.insert(
@@ -859,6 +998,10 @@ async fn attach_patchset_flags(
         obj.insert(
             "dry_run".to_string(),
             serde_json::Value::Bool(state.dry_run),
+        );
+        obj.insert(
+            "can_view_embargoed".to_string(),
+            serde_json::Value::Bool(can_view),
         );
         obj.insert(
             "can_release_embargo".to_string(),
@@ -897,8 +1040,17 @@ async fn get_patchset(
 
     match result {
         Ok(Some(mut details)) => {
-            attach_patchset_flags(&state, &headers, auth.0.as_ref(), &principal, &mut details)
-                .await?;
+            attach_patchset_flags(
+                &state,
+                &headers,
+                auth.0.as_ref(),
+                &principal,
+                &mut details,
+                query.page,
+                query.per_page,
+                true,
+            )
+            .await?;
             redact_embedded_bugs(&state, &principal, &mut details).await?;
             Ok(Json(details))
         }
@@ -913,8 +1065,33 @@ async fn get_patchset(
     }
 }
 
+async fn enforce_review_embargo(
+    state: &Arc<AppState>,
+    headers: &axum::http::HeaderMap,
+    auth: Option<&crate::auth::AuthUser>,
+    principal: &Principal,
+    details: &serde_json::Value,
+) -> Result<(), StatusCode> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some(until) = details.get("embargo_until").and_then(|v| v.as_i64())
+        && until > now
+    {
+        let Some(ps_id) = details.get("patchset_id").and_then(|v| v.as_i64()) else {
+            return Err(StatusCode::NOT_FOUND);
+        };
+        let (can_view, _) =
+            resolve_patchset_embargo_access(state, headers, auth, principal, ps_id).await?;
+        if !can_view {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
+    Ok(())
+}
+
 async fn get_review(
+    auth: crate::auth::OptionalAuthUser,
     OptionalPrincipal(principal): OptionalPrincipal,
+    headers: axum::http::HeaderMap,
     State(state): State<Arc<AppState>>,
     Query(query): Query<ReviewQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -930,6 +1107,7 @@ async fn get_review(
 
     match result {
         Ok(Some(mut details)) => {
+            enforce_review_embargo(&state, &headers, auth.0.as_ref(), &principal, &details).await?;
             redact_embedded_bugs(&state, &principal, &mut details).await?;
             Ok(Json(details))
         }
@@ -973,8 +1151,17 @@ async fn get_patchset_summary(
 
     match result {
         Ok(Some(mut details)) => {
-            attach_patchset_flags(&state, &headers, auth.0.as_ref(), &principal, &mut details)
-                .await?;
+            attach_patchset_flags(
+                &state,
+                &headers,
+                auth.0.as_ref(),
+                &principal,
+                &mut details,
+                query.page,
+                query.per_page,
+                false,
+            )
+            .await?;
             Ok(Json(details))
         }
         Ok(None) => {
@@ -989,7 +1176,9 @@ async fn get_patchset_summary(
 }
 
 async fn get_review_log(
+    auth: crate::auth::OptionalAuthUser,
     OptionalPrincipal(principal): OptionalPrincipal,
+    headers: axum::http::HeaderMap,
     State(state): State<Arc<AppState>>,
     Query(query): Query<ReviewQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -1005,6 +1194,7 @@ async fn get_review_log(
 
     match result {
         Ok(Some(mut details)) => {
+            enforce_review_embargo(&state, &headers, auth.0.as_ref(), &principal, &details).await?;
             redact_embedded_bugs(&state, &principal, &mut details).await?;
             Ok(Json(details))
         }
@@ -4945,6 +5135,50 @@ F:	net/
             .await
             .unwrap()
             .unwrap();
+        db.create_message(
+            "<embargo-srv@example.com>",
+            thread_id,
+            None,
+            "Author <author@example.com>",
+            "[PATCH] btrfs: fix",
+            now,
+            "",
+            "",
+            "",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let patch_id = db
+            .create_patch(ps_id, "<embargo-srv@example.com>", 1, "diff")
+            .await
+            .unwrap();
+        let review_id = db
+            .create_review(ps_id, Some(patch_id), "gemini", "gemini-2.5", None, None)
+            .await
+            .unwrap();
+        db.complete_review(
+            review_id,
+            "Reviewed",
+            "Found high severity issue",
+            Some("Use-after-free in btrfs"),
+            None,
+            Some("inline review text"),
+            Some("{\"step\":\"done\"}"),
+        )
+        .await
+        .unwrap();
+        db.create_finding(crate::db::Finding {
+            review_id,
+            severity: crate::db::Severity::High,
+            severity_explanation: Some("Exploitable UAF".to_string()),
+            problem: "Use-after-free in btrfs".to_string(),
+            preexisting: Some(false),
+            locations: None,
+        })
+        .await
+        .unwrap();
         db.update_patchset_status(ps_id, "Reviewed").await.unwrap();
         db.set_patchset_embargo_until(ps_id, now + 3600)
             .await
@@ -5024,8 +5258,15 @@ F:	*
             page: None,
             per_page: None,
         };
+        let list_pagination = || Pagination {
+            page: Some(1),
+            per_page: Some(50),
+            q: None,
+            mailing_list: None,
+        };
 
-        // 1. Anonymous caller sees can_release_embargo = false and is rejected with 403.
+        // 1. Anonymous caller sees Embargoed with empty reviews, zeroed list counts,
+        // 404 on /api/review, and 403 on release_patchset_embargo.
         let Json(anon_details) = get_patchset(
             crate::auth::OptionalAuthUser(None),
             OptionalPrincipal(Principal::anonymous()),
@@ -5036,7 +5277,35 @@ F:	*
         .await
         .unwrap();
         assert_eq!(anon_details["status"], "Embargoed");
+        assert_eq!(anon_details["can_view_embargoed"], false);
         assert_eq!(anon_details["can_release_embargo"], false);
+        assert_eq!(anon_details["reviews"].as_array().unwrap().len(), 0);
+
+        let Json(anon_list) = list_patchsets(
+            crate::auth::OptionalAuthUser(None),
+            OptionalPrincipal(Principal::anonymous()),
+            headers.clone(),
+            State(state.clone()),
+            Query(list_pagination()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(anon_list.items[0].status.as_deref(), Some("Embargoed"));
+        assert_eq!(anon_list.items[0].findings_high, Some(0));
+
+        let rev_err = get_review(
+            crate::auth::OptionalAuthUser(None),
+            OptionalPrincipal(Principal::anonymous()),
+            headers.clone(),
+            State(state.clone()),
+            Query(ReviewQuery {
+                id: Some(review_id),
+                patchset_id: None,
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(rev_err, StatusCode::NOT_FOUND);
 
         let err = release_patchset_embargo(
             crate::auth::OptionalAuthUser(None),
@@ -5049,7 +5318,8 @@ F:	*
         .unwrap_err();
         assert_eq!(err.0, StatusCode::FORBIDDEN);
 
-        // 2. Unrelated subsystem maintainer (davem) and blocklisted maintainer are denied.
+        // 2. Unrelated subsystem maintainer (davem) and blocklisted maintainer are denied
+        // both viewing embargoed results and releasing the embargo.
         for email in [
             "davem@davemloft.net",
             "stranger@example.org",
@@ -5066,8 +5336,31 @@ F:	*
             .await
             .unwrap();
             assert_eq!(
+                d["can_view_embargoed"], false,
+                "{email} should not have can_view_embargoed"
+            );
+            assert_eq!(
                 d["can_release_embargo"], false,
                 "{email} should not have can_release_embargo"
+            );
+            assert_eq!(
+                d["reviews"].as_array().unwrap().len(),
+                0,
+                "{email} should not see embargoed reviews"
+            );
+            let Json(list) = list_patchsets(
+                auth_for(email),
+                OptionalPrincipal(p.clone()),
+                headers.clone(),
+                State(state.clone()),
+                Query(list_pagination()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                list.items[0].findings_high,
+                Some(0),
+                "{email} should not see embargoed finding counts"
             );
             let err = release_patchset_embargo(
                 auth_for(email),
@@ -5081,18 +5374,44 @@ F:	*
             assert_eq!(err.0, StatusCode::FORBIDDEN);
         }
 
-        // 3. Scoped API token with Read ceiling for the subsystem maintainer is denied.
+        // 3. Scoped API token with Read ceiling for the subsystem maintainer CAN view
+        // embargoed results, but is denied releasing the embargo.
         let clm_read = Principal::resolve("clm@fb.com", acl, Some(&index))
             .with_max_access(Some(crate::access::BugAccess::Read));
-        let clm_api_auth = crate::auth::OptionalAuthUser(Some(crate::auth::AuthUser {
-            email: "clm@fb.com".to_string(),
-            typ: Some("api_token".to_string()),
-            iat: Some(now as u64),
-            sid: None,
-            max_bug_access: Some("read".to_string()),
-        }));
+        let clm_api_auth = || {
+            crate::auth::OptionalAuthUser(Some(crate::auth::AuthUser {
+                email: "clm@fb.com".to_string(),
+                typ: Some("api_token".to_string()),
+                iat: Some(now as u64),
+                sid: None,
+                max_bug_access: Some("read".to_string()),
+            }))
+        };
+        let Json(clm_read_details) = get_patchset(
+            clm_api_auth(),
+            OptionalPrincipal(clm_read.clone()),
+            headers.clone(),
+            State(state.clone()),
+            Query(query()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(clm_read_details["status"], "Embargoed");
+        assert_eq!(clm_read_details["can_view_embargoed"], true);
+        assert_eq!(clm_read_details["can_release_embargo"], false);
+        assert_eq!(clm_read_details["reviews"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            clm_read_details["reviews"][0]["inline_review"],
+            "inline review text"
+        );
+        assert_eq!(
+            clm_read_details["reviews"][0]["logs"],
+            "{\"step\":\"done\"}"
+        );
+        assert_eq!(clm_read_details["reviews"][0]["patch_id"], patch_id);
+
         let err = release_patchset_embargo(
-            clm_api_auth,
+            clm_api_auth(),
             OptionalPrincipal(clm_read),
             headers.clone(),
             State(state.clone()),
@@ -5103,7 +5422,8 @@ F:	*
         assert_eq!(err.0, StatusCode::FORBIDDEN);
 
         // 4. Corresponding maintainer (M:), reviewer (R:), global maintainer, operator,
-        // and ACL Permission::Review holder all see can_release_embargo = true.
+        // and ACL Permission::Review holder all see embargoed results immediately AND
+        // have can_release_embargo = true while status remains "Embargoed".
         for email in [
             "clm@fb.com",
             "josef@toxicpanda.com",
@@ -5114,18 +5434,74 @@ F:	*
             let p = Principal::resolve(email, acl, Some(&index));
             let Json(d) = get_patchset_summary(
                 auth_for(email),
-                OptionalPrincipal(p),
+                OptionalPrincipal(p.clone()),
                 headers.clone(),
                 State(state.clone()),
                 Query(query()),
             )
             .await
             .unwrap();
+            assert_eq!(d["status"], "Embargoed");
+            assert_eq!(
+                d["can_view_embargoed"], true,
+                "{email} should have can_view_embargoed"
+            );
             assert_eq!(
                 d["can_release_embargo"], true,
                 "{email} should have can_release_embargo"
             );
+            assert_eq!(
+                d["reviews"].as_array().unwrap().len(),
+                1,
+                "{email} should see embargoed reviews on summary"
+            );
+            assert!(
+                d["reviews"][0].get("logs").is_none(),
+                "summary endpoint must omit review logs"
+            );
+
+            let Json(list) = list_patchsets(
+                auth_for(email),
+                OptionalPrincipal(p.clone()),
+                headers.clone(),
+                State(state.clone()),
+                Query(list_pagination()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(list.items[0].status.as_deref(), Some("Embargoed"));
+            assert_eq!(
+                list.items[0].findings_high,
+                Some(1),
+                "{email} should see embargoed finding counts in list_patchsets"
+            );
+
+            let Json(rev) = get_review(
+                auth_for(email),
+                OptionalPrincipal(p),
+                headers.clone(),
+                State(state.clone()),
+                Query(ReviewQuery {
+                    id: Some(review_id),
+                    patchset_id: None,
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(rev["id"], review_id);
         }
+
+        // Verify the shared homepage cache was not polluted by maintainer list_patchsets calls.
+        let Json(anon_list_after) = list_patchsets(
+            crate::auth::OptionalAuthUser(None),
+            OptionalPrincipal(Principal::anonymous()),
+            headers.clone(),
+            State(state.clone()),
+            Query(list_pagination()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(anon_list_after.items[0].findings_high, Some(0));
 
         // 5. Corresponding maintainer releases the embargo; patchset immediately becomes Reviewed.
         let clm = Principal::resolve("clm@fb.com", acl, Some(&index));
@@ -5165,6 +5541,7 @@ F:	*
         .unwrap();
         assert_eq!(after_details["status"], "Reviewed");
         assert_eq!(after_details["can_release_embargo"], false);
+        assert_eq!(after_details["reviews"].as_array().unwrap().len(), 1);
     }
 }
 
