@@ -72,6 +72,9 @@
             --bugs-btn-border-hover: #5a32a3;
             --bugs-btn-glow: rgba(111, 66, 193, 0.2);
             --bugs-btn-glow-hover: rgba(111, 66, 193, 0.32);
+
+            --whats-new-bg: rgba(214, 127, 5, 0.06);
+            --whats-new-accent: #d67f05;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -132,6 +135,9 @@
                 --bugs-btn-border-hover: #d2a8ff;
                 --bugs-btn-glow: rgba(188, 140, 255, 0.22);
                 --bugs-btn-glow-hover: rgba(188, 140, 255, 0.35);
+
+                --whats-new-bg: rgba(240, 136, 62, 0.07);
+                --whats-new-accent: #f0883e;
             }
         }
 
@@ -285,6 +291,9 @@
             --bugs-btn-border-hover: #5a32a3;
             --bugs-btn-glow: rgba(111, 66, 193, 0.2);
             --bugs-btn-glow-hover: rgba(111, 66, 193, 0.32);
+
+            --whats-new-bg: rgba(214, 127, 5, 0.06);
+            --whats-new-accent: #d67f05;
         }
 
         body.theme-dark {
@@ -341,6 +350,9 @@
             --bugs-btn-border-hover: #d2a8ff;
             --bugs-btn-glow: rgba(188, 140, 255, 0.22);
             --bugs-btn-glow-hover: rgba(188, 140, 255, 0.35);
+
+            --whats-new-bg: rgba(240, 136, 62, 0.07);
+            --whats-new-accent: #f0883e;
         }
 
 
@@ -1433,78 +1445,102 @@
             display: none;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            background: var(--bugs-btn-bg);
-            border: 1px solid var(--bugs-btn-border);
-            border-radius: 6px;
-            padding: 8px 12px;
-            margin-bottom: 12px;
+            gap: 8px;
+            background: var(--whats-new-bg);
+            border: none;
+            border-left: 2px solid var(--whats-new-accent);
+            padding: 3px 8px;
+            margin-bottom: 10px;
+            font-size: 12px;
             cursor: pointer;
-            transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-            box-shadow: 0 1px 4px var(--bugs-btn-glow);
-        }
-        .whats-new-banner:hover {
-            background: var(--bugs-btn-bg-hover);
-            border-color: var(--bugs-btn-border-hover);
-            box-shadow: 0 2px 6px var(--bugs-btn-glow-hover);
         }
         .whats-new-banner-main {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
             min-width: 0;
             flex: 1;
         }
-        .whats-new-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            background: var(--card-bg);
-            color: var(--bugs-btn-text);
-            border: 1px solid var(--bugs-btn-border);
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.4px;
-            padding: 2px 8px;
-            border-radius: 999px;
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
         .whats-new-headline {
-            font-weight: 600;
-            color: var(--text);
+            color: var(--text-muted);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .whats-new-cta {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--bugs-btn-text);
-            white-space: nowrap;
-            flex-shrink: 0;
+        .whats-new-banner:hover .whats-new-headline {
+            color: var(--text);
+            text-decoration: underline;
         }
         .whats-new-close {
             background: transparent;
             border: none;
-            color: var(--text-muted);
-            font-size: 16px;
+            color: var(--text-dim);
+            font-size: 13px;
             line-height: 1;
-            padding: 2px 6px;
-            border-radius: 4px;
+            padding: 0 4px;
             cursor: pointer;
             flex-shrink: 0;
         }
         .whats-new-close:hover {
-            background: var(--hover);
             color: var(--text);
         }
-        .whats-new-modal-body {
-            white-space: pre-wrap;
-            line-height: 1.6;
-            font-size: 1.05em;
+        .whats-new-modal-content {
+            max-width: 640px;
+            padding: 24px 28px;
+        }
+        .whats-new-modal-header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            padding-bottom: 10px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        .whats-new-modal-title {
+            font-size: 1.35em;
+            font-weight: bold;
             color: var(--text);
+        }
+        .whats-new-modal-date {
+            font-size: 0.9em;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .whats-new-modal-body {
+            line-height: 1.5;
+            font-size: 1em;
+            color: var(--text);
+        }
+        .whats-new-modal-intro {
+            color: var(--text-muted);
+            margin: 0 0 12px 0;
+            white-space: pre-wrap;
+        }
+        .whats-new-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .whats-new-item {
+            padding: 8px 12px;
+            background: var(--code-bg);
+            border: 1px solid var(--border-light);
+            border-left: 2px solid var(--whats-new-accent);
+            border-radius: 3px;
+        }
+        .whats-new-item-title {
+            font-weight: bold;
+            color: var(--text);
+            margin-bottom: 3px;
+        }
+        .whats-new-item-desc {
+            color: var(--text-muted);
+            font-size: 0.95em;
+            line-height: 1.45;
         }
 
         /* Auth UI */
@@ -1597,18 +1633,9 @@
 <body>
     <div id="whatsNewBanner" class="whats-new-banner" onclick="openWhatsNewModal()">
         <div class="whats-new-banner-main" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWhatsNewModal();}">
-            <span class="whats-new-badge">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
-                </svg>
-                What's New
-            </span>
             <span id="whatsNewBannerHeadline" class="whats-new-headline"></span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-            <span class="whats-new-cta">Read announcement &rarr;</span>
-            <button type="button" class="whats-new-close" title="Dismiss announcement" aria-label="Dismiss announcement" onclick="dismissWhatsNew(event)">&times;</button>
-        </div>
+        <button type="button" class="whats-new-close" title="Dismiss announcement" aria-label="Dismiss announcement" onclick="dismissWhatsNew(event)">&times;</button>
     </div>
 
     <div id="app-shell" style="position: relative;">
@@ -1790,21 +1817,15 @@
     </div>
 
     <div id="whatsNewModal" class="modal-overlay" onclick="if(event.target===this) closeWhatsNewModal()">
-        <div class="modal-content">
+        <div class="modal-content whats-new-modal-content">
             <span class="modal-close" onclick="closeWhatsNewModal()">&times;</span>
-            <div class="about-logo" style="margin-bottom: 16px;">
-                <span class="whats-new-badge" style="font-size: 12px; padding: 3px 10px; margin-right: 10px;">
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                        <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
-                    </svg>
-                    What's New
-                </span>
-                <span id="whatsNewModalDate" style="font-size: 0.55em; font-weight: normal; color: var(--text-muted);"></span>
+            <div class="whats-new-modal-header">
+                <span id="whatsNewModalTitle" class="whats-new-modal-title">What's New</span>
+                <span id="whatsNewModalDate" class="whats-new-modal-date"></span>
             </div>
-            <h2 id="whatsNewModalHeadline" style="font-size: 1.3em; margin: 0 0 12px 0; border-bottom: none; padding-bottom: 0;"></h2>
             <div id="whatsNewModalBody" class="whats-new-modal-body"></div>
-            <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
-                <button type="button" class="btn primary" onclick="closeWhatsNewModal()">Got it</button>
+            <div style="margin-top: 18px; display: flex; justify-content: flex-end;">
+                <button type="button" class="btn" onclick="closeWhatsNewModal()">Close</button>
             </div>
         </div>
     </div>
@@ -1813,24 +1834,39 @@
         // =====================================================================
         // WHAT'S NEW ANNOUNCEMENT BANNER
         // =====================================================================
-        // Populate `headline` (and optionally `body` / `date` / `id`) to show a
-        // top-level announcement banner. Once a user clicks the banner to read
-        // the announcement or dismisses it with `×`, it stays hidden in their
-        // browser until `id`, `headline`, or `body` is updated.
-        // Leave `headline` and `body` empty to keep the banner hidden.
-        //
-        // Example:
-        // const WHATS_NEW = {
-        //     id: '2026-10-embargo-release',
-        //     date: '2026-10-09',
-        //     headline: 'Maintainers can now release patchset embargoes early',
-        //     body: 'Subsystem maintainers and operators can now click "Release Embargo" on an embargoed patchset page to immediately publish held findings.'
-        // };
+        // Populate `headline` (and optionally `body` / `items` / `date` / `id`)
+        // to show a top-level announcement banner. Once a user clicks the banner
+        // to read the announcement or dismisses it with `×`, it stays hidden in
+        // their browser until the content is updated.
+        // Leave `headline`, `body`, and `items` empty to keep the banner hidden.
         const WHATS_NEW = {
-            id: '',
-            date: '',
-            headline: '',
-            body: ''
+            id: '2026-10-12-whats-new-v2',
+            title: "What's New in Sashiko",
+            date: '2026-10-12',
+            headline: "What's new: maintainer embargo access & early embargo release, shareable bug links, and review map",
+            body: '',
+            items: [
+                {
+                    title: 'Maintainer embargo access & early embargo release',
+                    description: 'Signed-in maintainers can view embargoed reviews immediately without waiting for the timer, and use the new "Release Embargo" button on a patchset page to publish results early.'
+                },
+                {
+                    title: 'Shareable bug links',
+                    description: 'Anyone with a direct bug link (linux-<uuid>) can now view the report read-only. Use "Copy Link" on any bug page to share it.'
+                },
+                {
+                    title: 'Review map',
+                    description: 'Click "View Review Map" on any review to see everything Sashiko checked, including concerns it investigated and ruled out.'
+                },
+                {
+                    title: 'Prerequisite patch & stable baseline support',
+                    description: 'Series with standalone prerequisite-message-id trailers and bare stable-tree version tags now apply cleanly.'
+                },
+                {
+                    title: 'New mailing lists & 30-day login',
+                    description: 'Now tracking linux-usb, linux-kbuild, linux-erofs, linux-fscrypt, and linux-fsverity. Web sign-ins stay active for 30 days.'
+                }
+            ]
         };
 
         // =====================================================================
@@ -2512,9 +2548,11 @@
         function getWhatsNewDigest() {
             const headline = (WHATS_NEW.headline || '').trim();
             const body = (WHATS_NEW.body || '').trim();
-            if (!headline && !body) return '';
+            const items = Array.isArray(WHATS_NEW.items) ? WHATS_NEW.items : [];
+            if (!headline && !body && items.length === 0) return '';
             const id = (WHATS_NEW.id || '').trim();
-            return id ? `${id}:${headline}:${body}` : `${headline}:${body}`;
+            const itemsKey = items.map(i => `${i.title || ''}:${i.description || ''}`).join('|');
+            return id ? `${id}:${headline}:${body}:${itemsKey}` : `${headline}:${body}:${itemsKey}`;
         }
 
         function initWhatsNewBanner() {
@@ -2543,23 +2581,34 @@
         function openWhatsNewModal() {
             const digest = getWhatsNewDigest();
             if (!digest) return;
+            const title = (WHATS_NEW.title || "What's New").trim();
             const headline = (WHATS_NEW.headline || '').trim();
             const body = (WHATS_NEW.body || '').trim();
             const date = (WHATS_NEW.date || '').trim();
+            const items = Array.isArray(WHATS_NEW.items) ? WHATS_NEW.items : [];
+
+            const titleEl = document.getElementById('whatsNewModalTitle');
+            if (titleEl) titleEl.textContent = title;
 
             const dateEl = document.getElementById('whatsNewModalDate');
             if (dateEl) dateEl.textContent = date;
 
-            const headlineEl = document.getElementById('whatsNewModalHeadline');
-            if (headlineEl) {
-                headlineEl.textContent = headline;
-                headlineEl.style.display = headline ? 'block' : 'none';
-            }
-
             const bodyEl = document.getElementById('whatsNewModalBody');
             if (bodyEl) {
-                bodyEl.textContent = body;
-                bodyEl.style.display = body ? 'block' : 'none';
+                let html = '';
+                const introText = body || (items.length === 0 ? headline : '');
+                if (introText) {
+                    html += `<div class="whats-new-modal-intro">${escapeHtml(introText)}</div>`;
+                }
+                if (items.length > 0) {
+                    html += `<ul class="whats-new-list">` + items.map(item => `
+                        <li class="whats-new-item">
+                            ${item.title ? `<div class="whats-new-item-title">${escapeHtml(item.title)}</div>` : ''}
+                            ${item.description ? `<div class="whats-new-item-desc">${escapeHtml(item.description)}</div>` : ''}
+                        </li>
+                    `).join('') + `</ul>`;
+                }
+                bodyEl.innerHTML = html;
             }
 
             markWhatsNewRead();
