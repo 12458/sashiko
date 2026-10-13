@@ -5727,6 +5727,7 @@ async fn request_link(
                         crate::db::EmailKind::SignInLink,
                         status,
                         email,
+                        &[],
                         "[sashiko] Your sign-in link",
                         &body,
                     )

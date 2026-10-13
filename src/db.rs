@@ -10210,8 +10210,8 @@ impl Database {
     ///
     /// There is deliberately no dedup guard. Two sign-in requests are two
     /// distinct messages, and suppressing the second would look to the
-    /// recipient exactly like the feature being broken. Volume is bounded at
-    /// the request endpoint instead.
+    /// recipient exactly like the feature being broken. Sign-in volume is
+    /// bounded at the request endpoint instead.
     ///
     /// The caller supplies the status so that a dry-run deployment can park
     /// the row where the poller will not pick it up, which is how review mail
@@ -10222,19 +10222,23 @@ impl Database {
         kind: EmailKind,
         status: &str,
         to_address: &str,
+        cc_addresses: &[&str],
         subject: &str,
         body: &str,
     ) -> Result<()> {
         let created_at = chrono::Utc::now().timestamp();
         let to_json = serde_json::to_string(&[to_address])
             .map_err(|e| libsql::Error::Misuse(e.to_string()))?;
+        let cc_json = serde_json::to_string(cc_addresses)
+            .map_err(|e| libsql::Error::Misuse(e.to_string()))?;
         self.execute(
                 "INSERT INTO email_outbox (patch_id, kind, status, to_addresses, cc_addresses, subject, in_reply_to, references_hdr, body, created_at)
-                 VALUES (NULL, ?, ?, ?, '[]', ?, '', '', ?, ?)",
+                 VALUES (NULL, ?, ?, ?, ?, ?, '', '', ?, ?)",
                 libsql::params![
                     kind.as_str(),
                     status,
                     to_json,
+                    cc_json,
                     subject,
                     body,
                     created_at,
@@ -10364,6 +10368,7 @@ mod tests {
                 EmailKind::SignInLink,
                 "Pending",
                 "maintainer@example.org",
+                &[],
                 "[sashiko] Your sign-in link",
                 "body",
             )
@@ -10377,6 +10382,7 @@ mod tests {
         assert_eq!(first.kind, EmailKind::SignInLink);
         assert_eq!(first.patch_id, None);
         assert_eq!(first.to_addresses, r#"["maintainer@example.org"]"#);
+        assert_eq!(first.cc_addresses, "[]");
         db.mark_email_sent(first.id).await?;
 
         let second = db
@@ -10392,12 +10398,32 @@ mod tests {
             EmailKind::SignInLink,
             "Dry-Run",
             "maintainer@example.org",
+            &[],
             "[sashiko] Your sign-in link",
             "body",
         )
         .await?;
         assert!(db.lock_pending_email().await?.is_none());
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_transactional_email_carries_cc() -> Result<()> {
+        let db = setup_db().await;
+        db.insert_transactional_email(
+            EmailKind::SignInLink,
+            "Pending",
+            "to@example.org",
+            &["cc@example.org"],
+            "subject",
+            "body",
+        )
+        .await?;
+
+        let email = db.lock_pending_email().await?.expect("message queued");
+        assert_eq!(email.to_addresses, r#"["to@example.org"]"#);
+        assert_eq!(email.cc_addresses, r#"["cc@example.org"]"#);
         Ok(())
     }
 
