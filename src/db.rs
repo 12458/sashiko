@@ -1237,6 +1237,18 @@ pub struct ListBugsParams<'a> {
     pub visibility: BugVisibility<'a>,
 }
 
+/// A message to a person, queued inside the transaction of the change that
+/// prompts it.
+#[derive(Debug, Clone, Copy)]
+pub struct TransactionalEmail<'a> {
+    pub kind: EmailKind,
+    pub status: &'a str,
+    pub to_address: &'a str,
+    pub cc_addresses: &'a [&'a str],
+    pub subject: &'a str,
+    pub body: &'a str,
+}
+
 /// Selects bugs by who they are assigned to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssigneeFilter<'a> {
@@ -3423,18 +3435,38 @@ impl Database {
     ///
     /// Returns false when no such bug exists, so the caller can tell a bad id
     /// apart from a successful assignment.
+    ///
+    /// `notice` is queued in the same transaction, so it commits with the
+    /// assignment or not at all, unless the assignee read under the write lock
+    /// is already the new one, ignoring ASCII case.
     pub async fn assign_bug(
         &self,
         id: i64,
         assignee: Option<&str>,
         reason: Option<&str>,
+        notice: Option<&TransactionalEmail<'_>>,
     ) -> Result<bool> {
         let assignee = assignee.map(str::trim).filter(|s| !s.is_empty());
         let now = chrono::Utc::now().timestamp();
         let tx = self.begin_transaction().await?;
-        let updated = tx
-            .execute(
-                "UPDATE bugs
+        let found = {
+            let mut rows = tx
+                .query(
+                    "SELECT assignee FROM bugs WHERE id = ?1",
+                    libsql::params![id],
+                )
+                .await?;
+            match rows.next().await? {
+                Some(row) => Some(row.get::<Option<String>>(0)?),
+                None => None,
+            }
+        };
+        let Some(previous) = found else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+        tx.execute(
+            "UPDATE bugs
                     SET assignee = ?1,
                         assigned_at = CASE WHEN ?1 IS NULL THEN NULL ELSE ?2 END,
                         updated_at = ?2,
@@ -3442,24 +3474,33 @@ impl Database {
                         audit_tool = ?4,
                         audit_model = ?5
                   WHERE id = ?6",
-                libsql::params![
-                    assignee,
-                    now,
-                    self.bug_actor.as_str(),
-                    self.bug_tool.as_str(),
-                    self.bug_model.clone(),
-                    id,
-                ],
-            )
-            .await?;
-        if updated == 0 {
-            tx.rollback().await?;
-            return Ok(false);
-        }
+            libsql::params![
+                assignee,
+                now,
+                self.bug_actor.as_str(),
+                self.bug_tool.as_str(),
+                self.bug_model.clone(),
+                id,
+            ],
+        )
+        .await?;
         if let Some(reason) = reason.map(str::trim).filter(|s| !s.is_empty()) {
             tx.execute(
                 "INSERT INTO bug_enrichments (bug_id, kind, tool, author, model, created_at, content) VALUES (?, 'comment', ?, ?, ?, ?, ?)",
                 libsql::params![id, self.bug_tool.as_str(), self.bug_actor.as_str(), self.bug_model.clone(), now, reason],
+            )
+            .await?;
+        }
+        let repeat = previous
+            .as_deref()
+            .zip(assignee)
+            .is_some_and(|(previous, assignee)| previous.eq_ignore_ascii_case(assignee));
+        if let Some(notice) = notice
+            && !repeat
+        {
+            tx.execute(
+                INSERT_TRANSACTIONAL_EMAIL,
+                transactional_email_params(notice)?,
             )
             .await?;
         }
@@ -10243,27 +10284,42 @@ impl Database {
         subject: &str,
         body: &str,
     ) -> Result<()> {
-        let created_at = chrono::Utc::now().timestamp();
-        let to_json = serde_json::to_string(&[to_address])
-            .map_err(|e| libsql::Error::Misuse(e.to_string()))?;
-        let cc_json = serde_json::to_string(cc_addresses)
-            .map_err(|e| libsql::Error::Misuse(e.to_string()))?;
+        let email = TransactionalEmail {
+            kind,
+            status,
+            to_address,
+            cc_addresses,
+            subject,
+            body,
+        };
         self.execute(
-                "INSERT INTO email_outbox (patch_id, kind, status, to_addresses, cc_addresses, subject, in_reply_to, references_hdr, body, created_at)
-                 VALUES (NULL, ?, ?, ?, ?, ?, '', '', ?, ?)",
-                libsql::params![
-                    kind.as_str(),
-                    status,
-                    to_json,
-                    cc_json,
-                    subject,
-                    body,
-                    created_at,
-                ],
-            )
-            .await?;
+            INSERT_TRANSACTIONAL_EMAIL,
+            transactional_email_params(&email)?,
+        )
+        .await?;
         Ok(())
     }
+}
+
+#[cfg(feature = "server")]
+const INSERT_TRANSACTIONAL_EMAIL: &str = "INSERT INTO email_outbox (patch_id, kind, status, to_addresses, cc_addresses, subject, in_reply_to, references_hdr, body, created_at)
+     VALUES (NULL, ?, ?, ?, ?, ?, '', '', ?, ?)";
+
+#[cfg(feature = "server")]
+fn transactional_email_params(email: &TransactionalEmail<'_>) -> Result<libsql::params::Params> {
+    let to_json = serde_json::to_string(&[email.to_address])
+        .map_err(|e| libsql::Error::Misuse(e.to_string()))?;
+    let cc_json = serde_json::to_string(email.cc_addresses)
+        .map_err(|e| libsql::Error::Misuse(e.to_string()))?;
+    Ok(libsql::params::Params::Positional(vec![
+        email.kind.as_str().into(),
+        email.status.into(),
+        to_json.into(),
+        cc_json.into(),
+        email.subject.into(),
+        email.body.into(),
+        chrono::Utc::now().timestamp().into(),
+    ]))
 }
 
 #[cfg(all(test, feature = "server"))]
@@ -18634,7 +18690,12 @@ mod tests {
         let scoped = db.with_bug_actor("triager@example.org", "web", None);
         assert!(
             scoped
-                .assign_bug(bug_id, Some("  dev@example.org  "), Some("Owns this area"))
+                .assign_bug(
+                    bug_id,
+                    Some("  dev@example.org  "),
+                    Some("Owns this area"),
+                    None
+                )
                 .await
                 .unwrap()
         );
@@ -18655,7 +18716,7 @@ mod tests {
 
         // Reassignment is recorded as a handover rather than as two events.
         scoped
-            .assign_bug(bug_id, Some("other@example.org"), None)
+            .assign_bug(bug_id, Some("other@example.org"), None, None)
             .await
             .unwrap();
         let reassigned = db.get_bug(bug_id).await.unwrap().unwrap();
@@ -18665,13 +18726,77 @@ mod tests {
         }));
 
         // Clearing the assignee must clear the timestamp with it.
-        scoped.assign_bug(bug_id, None, None).await.unwrap();
+        scoped.assign_bug(bug_id, None, None, None).await.unwrap();
         let cleared = db.get_bug(bug_id).await.unwrap().unwrap();
         assert!(cleared.assignee.is_none());
         assert!(cleared.assigned_at.is_none());
 
         // An unknown bug reports failure instead of silently doing nothing.
-        assert!(!db.assign_bug(999_999, Some("x@y.org"), None).await.unwrap());
+        assert!(
+            !db.assign_bug(999_999, Some("x@y.org"), None, None)
+                .await
+                .unwrap()
+        );
+    }
+
+    /// The notice commits with the assignment, and only when the assignee
+    /// changes.
+    #[tokio::test]
+    async fn test_assign_bug_queues_notice_on_change_only() {
+        let db_settings = crate::settings::DatabaseSettings {
+            url: ":memory:".to_string(),
+            token: String::new(),
+        };
+        let db = Database::new(&db_settings).await.unwrap();
+        db.migrate().await.unwrap();
+        let bug_id = create_pending_bug(&db, "linux-notice").await;
+        let notice = |to| TransactionalEmail {
+            kind: EmailKind::BugAssignment,
+            status: "Pending",
+            to_address: to,
+            cc_addresses: &["lead@example.org"],
+            subject: "s",
+            body: "b",
+        };
+        let queued = || async {
+            let mut rows = db
+                .conn
+                .query(
+                    "SELECT COUNT(*) FROM email_outbox WHERE kind = 'bug_assignment'",
+                    (),
+                )
+                .await
+                .unwrap();
+            rows.next().await.unwrap().unwrap().get::<i64>(0).unwrap()
+        };
+
+        db.assign_bug(
+            bug_id,
+            Some("dev@example.org"),
+            None,
+            Some(&notice("dev@example.org")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(queued().await, 1);
+        db.assign_bug(
+            bug_id,
+            Some("Dev@example.org"),
+            None,
+            Some(&notice("Dev@example.org")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(queued().await, 1);
+        db.assign_bug(
+            bug_id,
+            Some("other@example.org"),
+            None,
+            Some(&notice("other@example.org")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(queued().await, 2);
     }
 
     /// Filtering by assignee must be able to express both "mine" and
@@ -18688,10 +18813,10 @@ mod tests {
         let mine = create_pending_bug(&db, "linux-mine").await;
         let theirs = create_pending_bug(&db, "linux-theirs").await;
         let nobody = create_pending_bug(&db, "linux-nobody").await;
-        db.assign_bug(mine, Some("me@example.org"), None)
+        db.assign_bug(mine, Some("me@example.org"), None, None)
             .await
             .unwrap();
-        db.assign_bug(theirs, Some("them@example.org"), None)
+        db.assign_bug(theirs, Some("them@example.org"), None, None)
             .await
             .unwrap();
 

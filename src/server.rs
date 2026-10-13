@@ -2726,7 +2726,7 @@ async fn bug_action(
                     "Assignee must be an email address".into(),
                 ));
             }
-            db.assign_bug(bug.id, assignee, reason.as_deref())
+            db.assign_bug(bug.id, assignee, reason.as_deref(), None)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
