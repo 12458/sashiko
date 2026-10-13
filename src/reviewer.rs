@@ -3166,7 +3166,7 @@ impl Reviewer {
                     };
                     let final_subject = format!("{}{}", subject_prefix, patch_subject);
                     let final_body = format!(
-                        "{}\nSashiko has reviewed this patch and found no issues. It looks great!\n\n-- \nSashiko AI review · {}\n",
+                        "{}\nSashiko has reviewed this patch and found no issues.\n\n-- \nSashiko AI review · {}\n",
                         body_head, target_url
                     );
 
@@ -5265,7 +5265,7 @@ inline review content 4\n\n-- \nSashiko AI review · https://sashiko.dev/#/patch
         let mut rows = db
             .conn
             .query(
-                "SELECT status, to_addresses, cc_addresses FROM email_outbox WHERE patch_id = ?",
+                "SELECT status, to_addresses, cc_addresses, body FROM email_outbox WHERE patch_id = ?",
                 libsql::params![p_id_1],
             )
             .await?;
@@ -5273,12 +5273,15 @@ inline review content 4\n\n-- \nSashiko AI review · https://sashiko.dev/#/patch
         let status: String = row.get(0)?;
         let to_addrs: String = row.get(1)?;
         let cc_addrs: String = row.get(2)?;
+        let body: String = row.get(3)?;
         assert_eq!(status, "Pending");
         assert_eq!(
             serde_json::from_str::<Vec<String>>(&to_addrs)?,
             vec!["Author <author@example.com>".to_string()]
         );
         assert!(serde_json::from_str::<Vec<String>>(&cc_addrs)?.is_empty());
+        assert!(body.contains("Sashiko has reviewed this patch and found no issues.\n"));
+        assert!(!body.contains("It looks great!"));
 
         Ok(())
     }
