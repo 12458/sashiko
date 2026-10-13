@@ -95,7 +95,7 @@ Optional. If omitted, no review emails are sent. Even when present,
 | `username` | string | -- | SMTP username (optional). |
 | `password` | string | -- | SMTP password (optional). |
 | `sender_address` | string | -- | From address for review emails. |
-| `reply_to` | string | -- | Reply-To address (optional). |
+| `reply_to` | string | -- | Reply-To address for review emails (optional). Email addressed to a person, such as a sign-in link, carries none. |
 | `dry_run` | bool | `true` | When true, emails are logged but not sent. |
 
 ### `[ai]`

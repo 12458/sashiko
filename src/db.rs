@@ -1263,6 +1263,9 @@ pub enum EmailKind {
     SignInLink,
     /// A notice to the person a bug was just assigned to.
     BugAssignment,
+    /// A kind written by a newer binary. Delivered with no added headers and
+    /// no Reply-To, since it may be addressed to a person.
+    Unrecognized,
 }
 
 impl EmailKind {
@@ -1271,6 +1274,7 @@ impl EmailKind {
             EmailKind::ReviewNotification => "review_notification",
             EmailKind::SignInLink => "sign_in_link",
             EmailKind::BugAssignment => "bug_assignment",
+            EmailKind::Unrecognized => "unrecognized",
         }
     }
 
@@ -1278,7 +1282,7 @@ impl EmailKind {
     /// thread, or None for review notifications.
     pub fn transactional_list_label(self) -> Option<&'static str> {
         match self {
-            EmailKind::ReviewNotification => None,
+            EmailKind::ReviewNotification | EmailKind::Unrecognized => None,
             EmailKind::SignInLink => Some("sashiko-auth"),
             EmailKind::BugAssignment => Some("sashiko-bugs"),
         }
@@ -1286,17 +1290,16 @@ impl EmailKind {
 
     /// Reads a stored value.
     ///
-    /// A value written by a newer binary is reported as a review notification,
-    /// which is the treatment that adds no headers and grants no exemption, so
-    /// an unrecognized row is delivered plainly rather than dropped.
+    /// A value written by a newer binary is reported as Unrecognized, so the
+    /// row is delivered plainly rather than dropped.
     pub fn from_stored(value: &str) -> Self {
         match value {
             "sign_in_link" => EmailKind::SignInLink,
             "bug_assignment" => EmailKind::BugAssignment,
             "review_notification" => EmailKind::ReviewNotification,
             other => {
-                tracing::warn!("Unrecognized email kind {:?}, treating as review", other);
-                EmailKind::ReviewNotification
+                tracing::warn!("Unrecognized email kind {:?}, delivering plainly", other);
+                EmailKind::Unrecognized
             }
         }
     }

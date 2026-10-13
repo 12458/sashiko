@@ -178,13 +178,15 @@ fn build_email_message(
 
     if let Some(label) = email_row.kind.transactional_list_label() {
         // Email addressed to a person rather than a thread must not provoke a
-        // vacation autoresponder, and should be filable.
+        // vacation autoresponder, and should be filable. Its replies go to the
+        // sender: reply_to can be a review list, whose public archive would
+        // hold the link the reply quotes.
         builder = builder
             .header(AutoSubmitted("auto-generated".to_string()))
             .header(ListId(format!("<{}.{}>", label, from.email.domain())));
-    }
-
-    if let Some(reply_to) = &settings.reply_to {
+    } else if email_row.kind == crate::db::EmailKind::ReviewNotification
+        && let Some(reply_to) = &settings.reply_to
+    {
         match reply_to.parse() {
             Ok(addr) => builder = builder.reply_to(addr),
             Err(e) => warn!("Failed to parse reply_to address '{}': {}", reply_to, e),
@@ -406,7 +408,7 @@ mod tests {
             username: None,
             password: None,
             sender_address: "Sashiko Bot <sashiko@linux.dev>".to_string(),
-            reply_to: None,
+            reply_to: Some("reviews@lists.example.org".to_string()),
             dry_run: true,
         };
         let row = |kind| crate::db::EmailOutboxRow {
@@ -436,12 +438,19 @@ mod tests {
         let assignment = format(crate::db::EmailKind::BugAssignment);
         assert!(assignment.contains("Auto-Submitted: auto-generated\r\n"));
         assert!(assignment.contains("List-Id: <sashiko-bugs.linux.dev>\r\n"));
+        assert!(!assignment.contains("Reply-To"));
 
         let sign_in = format(crate::db::EmailKind::SignInLink);
         assert!(sign_in.contains("List-Id: <sashiko-auth.linux.dev>\r\n"));
+        assert!(!sign_in.contains("Reply-To"));
 
         let review = format(crate::db::EmailKind::ReviewNotification);
         assert!(!review.contains("Auto-Submitted"));
         assert!(!review.contains("List-Id"));
+        assert!(review.contains("Reply-To: reviews@lists.example.org\r\n"));
+
+        let unrecognized = format(crate::db::EmailKind::Unrecognized);
+        assert!(!unrecognized.contains("List-Id"));
+        assert!(!unrecognized.contains("Reply-To"));
     }
 }
