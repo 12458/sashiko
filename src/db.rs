@@ -1261,6 +1261,8 @@ pub enum EmailKind {
     ReviewNotification,
     /// A sign-in link, tied to a person.
     SignInLink,
+    /// A notice to the person a bug was just assigned to.
+    BugAssignment,
 }
 
 impl EmailKind {
@@ -1268,6 +1270,17 @@ impl EmailKind {
         match self {
             EmailKind::ReviewNotification => "review_notification",
             EmailKind::SignInLink => "sign_in_link",
+            EmailKind::BugAssignment => "bug_assignment",
+        }
+    }
+
+    /// The List-Id label for email sent to a person rather than to a patch's
+    /// thread, or None for review notifications.
+    pub fn transactional_list_label(self) -> Option<&'static str> {
+        match self {
+            EmailKind::ReviewNotification => None,
+            EmailKind::SignInLink => Some("sashiko-auth"),
+            EmailKind::BugAssignment => Some("sashiko-bugs"),
         }
     }
 
@@ -1279,6 +1292,7 @@ impl EmailKind {
     pub fn from_stored(value: &str) -> Self {
         match value {
             "sign_in_link" => EmailKind::SignInLink,
+            "bug_assignment" => EmailKind::BugAssignment,
             "review_notification" => EmailKind::ReviewNotification,
             other => {
                 tracing::warn!("Unrecognized email kind {:?}, treating as review", other);
