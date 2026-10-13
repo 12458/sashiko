@@ -2583,6 +2583,133 @@ fn bug_lookup_denial(status: StatusCode) -> (StatusCode, String) {
     (status, message.to_string())
 }
 
+/// Longest part of a bug title, in bytes, that an assignment notice's
+/// subject carries.
+const ASSIGNMENT_SUBJECT_TITLE_BYTES: usize = 80;
+
+/// Longest part of the assigner's note, in bytes, that an assignment notice
+/// carries. The whole note is on the bug page as a comment.
+const ASSIGNMENT_NOTE_BYTES: usize = 4096;
+
+/// Renders the subject and body of the notice sent to a bug's new assignee.
+fn build_bug_assignment_email(
+    assigner: &str,
+    title: &str,
+    link: &str,
+    note: Option<&str>,
+    base_url: &str,
+) -> (String, String) {
+    // Titles are model output and can span lines, which a subject cannot.
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let short_title = crate::utils::utf8_prefix(&title, ASSIGNMENT_SUBJECT_TITLE_BYTES);
+    let ellipsis = if short_title.len() < title.len() {
+        "..."
+    } else {
+        ""
+    };
+    let subject = format!("[sashiko] {assigner} assigned you a bug: {short_title}{ellipsis}");
+
+    let note_block = match note.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(note) => {
+            let shown = crate::utils::utf8_prefix(note, ASSIGNMENT_NOTE_BYTES);
+            let mut indented: Vec<String> = shown
+                .lines()
+                .map(|line| match line.trim_end() {
+                    "" => String::new(),
+                    line => format!("  {line}"),
+                })
+                .collect();
+            if shown.len() < note.len() {
+                indented.push("  [...] The full note is on the bug page.".to_string());
+            }
+            format!("Their note:\n\n{}\n\n", indented.join("\n"))
+        }
+        None => String::new(),
+    };
+    let body = format!(
+        "{assigner} assigned you this Sashiko bug report:\n\n\
+         \x20 {title}\n\
+         \x20 {link}\n\n\
+         {note_block}\
+         The link opens the report without signing in, for anyone who has it.\n\n\
+         Questions about the assignment go to {assigner}, who is on Cc.\n\n\
+         -- \n\
+         Sashiko AI review · {base_url}"
+    );
+    (subject, body)
+}
+
+/// Whether an assignment notice may go to `address`.
+///
+/// Email to a list address lands in the list's public archive with the bug's
+/// link, and an address that is not a plain one, Sashiko's own, or a
+/// blocklisted one is not a person to notify.
+fn is_notifiable_address(
+    state: &AppState,
+    smtp: &crate::settings::SmtpSettings,
+    address: &str,
+) -> bool {
+    let Ok(parsed) = address.parse::<lettre::Address>() else {
+        return false;
+    };
+    let domain = parsed.domain().to_ascii_lowercase();
+    !crate::email_router::KNOWN_MAILING_LIST_DOMAINS.contains(&domain.as_str())
+        && crate::email_policy::extract_bare_email(&smtp.sender_address)
+            != address.to_ascii_lowercase()
+        && !state.settings.server.acl.is_blocklisted(address)
+}
+
+/// The notice to queue with an assignment.
+struct AssignmentNotice {
+    subject: String,
+    body: String,
+    status: &'static str,
+}
+
+/// Builds the email to a bug's new assignee, naming who assigned it, or
+/// None when no notice is due. assign_bug() drops it when the assignee is
+/// unchanged.
+fn assignment_notice(
+    state: &AppState,
+    bug: &crate::db::Bug,
+    assigner: &str,
+    assignee: &str,
+    note: Option<&str>,
+) -> Option<AssignmentNotice> {
+    let smtp = state.settings.smtp.as_ref()?;
+    // Nobody to name, or an assignee who already knows. Addresses that
+    // differ only in case name one person.
+    if assigner.is_empty() || assignee.eq_ignore_ascii_case(assigner) {
+        return None;
+    }
+    if !is_notifiable_address(state, smtp, assignee) {
+        tracing::warn!(
+            "Not emailing the new assignee of bug {}: {} is a list, Sashiko's own, \
+             blocklisted or not a plain address",
+            bug.bugid,
+            assignee
+        );
+        return None;
+    }
+
+    let Some(base_url) = state.settings.server.mailed_link_base_url() else {
+        tracing::error!(
+            "Not emailing the new assignee of bug {}: server.public_base_url is \
+             not a reachable URL",
+            bug.bugid
+        );
+        return None;
+    };
+    let link = format!("{}/bug/{}", base_url, bug.bugid);
+    let (subject, body) = build_bug_assignment_email(assigner, &bug.title, &link, note, &base_url);
+    let status = if smtp.dry_run { "Dry-Run" } else { "Pending" };
+    Some(AssignmentNotice {
+        subject,
+        body,
+        status,
+    })
+}
+
 async fn bug_action(
     principal: Principal,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -2726,7 +2853,22 @@ async fn bug_action(
                     "Assignee must be an email address".into(),
                 ));
             }
-            db.assign_bug(bug.id, assignee, reason.as_deref(), None)
+            let assigner = [principal.email()];
+            let notice = assignee.and_then(|who| {
+                assignment_notice(&state, &bug, assigner[0], who, reason.as_deref())
+                    .map(|notice| (who, notice))
+            });
+            let email = notice
+                .as_ref()
+                .map(|(who, notice)| crate::db::TransactionalEmail {
+                    kind: crate::db::EmailKind::BugAssignment,
+                    status: notice.status,
+                    to_address: who,
+                    cc_addresses: &assigner,
+                    subject: &notice.subject,
+                    body: &notice.body,
+                });
+            db.assign_bug(bug.id, assignee, reason.as_deref(), email.as_ref())
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
@@ -4000,6 +4142,174 @@ mod tests {
                 .body
                 .contains("-- \nSashiko AI review · https://sashiko.dev")
         );
+    }
+
+    #[tokio::test]
+    async fn test_bug_assignment_emails_only_a_new_assignee() {
+        const SECRET: &str = "bug-assign-secret-123456789012345678901";
+        let db_settings = crate::settings::DatabaseSettings {
+            url: ":memory:".to_string(),
+            token: String::new(),
+        };
+        let db = Arc::new(Database::new(&db_settings).await.unwrap());
+        db.migrate().await.unwrap();
+        let bug_id = db
+            .create_bug(&crate::db::NewBug {
+                bugid: "linux-assign01".to_string(),
+                title: "UAF in\nbtrfs".to_string(),
+                lifecycle_status: crate::db::BugLifecycleStatus::New,
+                pipeline_state: crate::db::BugPipelineState::Pending,
+                assignee: None,
+                reporter: "sashiko".to_string(),
+                reported_at: 123456,
+                discovered_in_patchset_id: None,
+                discovered_in_patch_id: None,
+                discovered_in_commit: None,
+                source_ref: None,
+                vector_json: None,
+                duplicate_of_id: None,
+                subsystems: vec![crate::db::AttributedSubsystem::from_maintainers(
+                    "BTRFS FILE SYSTEM",
+                )],
+            })
+            .await
+            .unwrap();
+
+        let mut settings = crate::settings::Settings::new().unwrap();
+        settings.server.testing_mode = false;
+        settings.server.read_only = false;
+        settings.server.jwt_secret = Some(SECRET.to_string());
+        settings.server.public_base_url = Some("https://sashiko.dev".to_string());
+        settings.server.acl.admins = vec!["lead@example.org".to_string()];
+        settings.server.acl.blocklist = vec!["revoked@example.org".to_string()];
+        settings.smtp = Some(crate::settings::SmtpSettings {
+            server: "smtp.example.org".to_string(),
+            port: 587,
+            username: None,
+            password: None,
+            sender_address: "sashiko@sashiko.dev".to_string(),
+            reply_to: None,
+            dry_run: false,
+        });
+
+        let (event_tx, _event_rx) = mpsc::channel(10);
+        let (fetch_tx, _fetch_rx) = mpsc::channel(10);
+        let app = build_router(
+            Arc::new(settings),
+            db.clone(),
+            event_tx,
+            fetch_tx,
+            ServerOptions {
+                smtp_enabled: true,
+                ..Default::default()
+            },
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let token = crate::auth::create_token(
+            "lead@example.org",
+            SECRET,
+            Some("session".to_string()),
+            3600,
+        )
+        .unwrap();
+        let assign = |assignee: Option<&str>, reason: Option<&str>| {
+            client
+                .post(format!("http://{}/api/bug/action?id={}", addr, bug_id))
+                .header("Authorization", format!("Bearer {}", token))
+                .json(&serde_json::json!({
+                    "action": "assign",
+                    "assignee": assignee,
+                    "reason": reason,
+                }))
+                .send()
+        };
+
+        let res = assign(Some("dev@example.org"), Some("Could you take this?"))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let email = db
+            .lock_pending_email()
+            .await
+            .unwrap()
+            .expect("assignment notice queued");
+        assert_eq!(email.kind, crate::db::EmailKind::BugAssignment);
+        assert_eq!(email.to_addresses, r#"["dev@example.org"]"#);
+        assert_eq!(email.cc_addresses, r#"["lead@example.org"]"#);
+        assert_eq!(
+            email.subject,
+            "[sashiko] lead@example.org assigned you a bug: UAF in btrfs"
+        );
+        assert!(
+            email
+                .body
+                .starts_with("lead@example.org assigned you this Sashiko bug report:\n\n")
+        );
+        assert!(
+            email
+                .body
+                .contains("  UAF in btrfs\n  https://sashiko.dev/bug/linux-assign01\n")
+        );
+        assert!(
+            email
+                .body
+                .contains("Their note:\n\n  Could you take this?\n\n")
+        );
+        assert!(
+            email
+                .body
+                .contains("Questions about the assignment go to lead@example.org")
+        );
+        db.mark_email_sent(email.id).await.unwrap();
+
+        // The same assignee again, in either case, a list, Sashiko's own,
+        // a blocklisted or a non-plain address, a self-assignment and an
+        // unassignment queue no notice.
+        for assignee in [
+            Some("dev@example.org"),
+            Some("Dev@example.org"),
+            Some("kvmarm@lists.linux.dev"),
+            Some("sashiko@sashiko.dev"),
+            Some("revoked@example.org"),
+            Some("x<y@example.com>@example.org"),
+            Some("lead@example.org"),
+            None,
+        ] {
+            let res = assign(assignee, None).await.unwrap();
+            assert_eq!(res.status(), 200);
+        }
+        assert!(db.lock_pending_email().await.unwrap().is_none());
+        assert_eq!(db.get_bug(bug_id).await.unwrap().unwrap().assignee, None);
+    }
+
+    #[test]
+    fn test_bug_assignment_email_bounds_the_title_and_note() {
+        let title = "é".repeat(100);
+        let link = "https://sashiko.dev/bug/linux-x";
+        let base = "https://sashiko.dev";
+        let (subject, body) =
+            build_bug_assignment_email("lead@example.org", &title, link, Some("   "), base);
+        assert!(subject.ends_with(&format!("{}...", "é".repeat(40))));
+        assert!(body.contains(&title));
+        assert!(!body.contains("Their note"));
+
+        let note = "x".repeat(ASSIGNMENT_NOTE_BYTES + 1);
+        let (_, body) =
+            build_bug_assignment_email("lead@example.org", "t", link, Some(&note), base);
+        assert!(body.contains(&format!("  {}\n", "x".repeat(ASSIGNMENT_NOTE_BYTES))));
+        assert!(!body.contains(&note));
+        assert!(body.contains("  [...] The full note is on the bug page.\n"));
     }
 
     #[tokio::test]

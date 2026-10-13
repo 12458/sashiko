@@ -6736,7 +6736,7 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
             } else if (action === 'assign') {
                 titleEl.textContent = 'Assign Bug';
                 reasonLabelEl.textContent = 'Reason (optional):';
-                reasonArea.placeholder = 'Why is this being assigned?';
+                reasonArea.placeholder = 'Why is this being assigned? If the assignee is notified by email, this note is included.';
                 assignSection.style.display = 'block';
                 // Prefill with the current assignee so the field doubles as a
                 // reassignment form rather than always starting blank.

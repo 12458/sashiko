@@ -754,6 +754,17 @@ impl Default for ServerSettings {
 }
 
 impl ServerSettings {
+    /// The base URL for a link mailed to someone else, without a trailing
+    /// slash, or None unless public_base_url has a reachable host. Unlike
+    /// sign_in_base_url(), it never falls back to the bind address.
+    pub fn mailed_link_base_url(&self) -> Option<String> {
+        self.public_base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| is_reachable_base_url(url))
+            .map(|url| url.trim_end_matches('/').to_string())
+    }
+
     /// The base URL to build a sign-in link on, without a trailing slash.
     ///
     /// Falls back to the bind address, which is only good enough when the link
@@ -1703,6 +1714,32 @@ mod tests {
         // best-effort address is enough.
         server.public_base_url = None;
         assert_eq!(server.sign_in_base_url(), "http://:::8080");
+    }
+
+    #[test]
+    fn test_mailed_link_base_url_never_names_the_bind_address() {
+        let mut server = ServerSettings {
+            host: "::".to_string(),
+            port: 8080,
+            public_base_url: Some("https://sashiko.example.org/".to_string()),
+            read_only: false,
+            testing_mode: false,
+            jwt_secret: None,
+            log_sign_in_links: false,
+            acl: AclSettings::default(),
+        };
+        assert_eq!(
+            server.mailed_link_base_url().as_deref(),
+            Some("https://sashiko.example.org")
+        );
+        for unusable in [
+            None,
+            Some("http://[::]:8080"),
+            Some("http://localhost:8080"),
+        ] {
+            server.public_base_url = unusable.map(str::to_string);
+            assert_eq!(server.mailed_link_base_url(), None, "{:?}", unusable);
+        }
     }
 
     #[test]
