@@ -791,6 +791,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         }
     }
 

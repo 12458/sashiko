@@ -6,6 +6,7 @@ temperature = 1.0
 
 [ai.gemini]
 explicit_prompt_caching = false
+# thinking_level = "HIGH"
 
 [review]
 # Reviews run concurrently up to this many patches. Sized for one developer's

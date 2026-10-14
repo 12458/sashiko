@@ -126,8 +126,28 @@ pub struct AiTool {
     pub parameters: serde_json::Value,
 }
 
+/// Reasoning / thinking effort level requested for a stage or call.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    /// Returns the uppercase Gemini `thinkingConfig.thinkingLevel` string.
+    pub fn as_gemini_thinking_level(self) -> &'static str {
+        match self {
+            Self::Low => "LOW",
+            Self::Medium => "MEDIUM",
+            Self::High => "HIGH",
+        }
+    }
+}
+
 /// A generic AI request containing conversation history and configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AiRequest {
     /// Optional system prompt that sets the behavior or context of the AI.
     /// This is extracted separately from messages to allow providers to handle it directly.
@@ -147,6 +167,9 @@ pub struct AiRequest {
     /// Optional context tag for logging (e.g., [ps:123 p:1 s:4])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_tag: Option<String>,
+    /// Optional per-request reasoning / thinking effort override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 tokio::task_local! {
@@ -1097,6 +1120,7 @@ mod tests {
             temperature: Some(0.5),
             response_format: Some(AiResponseFormat::Text),
             context_tag: None,
+            reasoning_effort: None,
         };
 
         // This matches the format used in StdioGeminiClient and expected by the Worker

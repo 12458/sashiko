@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use crate::ai::{
     AiMessage, AiProvider, AiResponse, AiResponseFormat, AiTool, ErrorAction, LlmSession,
-    SessionRunner, ToolCall, ValidationError,
+    ReasoningEffort, SessionRunner, ToolCall, ValidationError,
 };
 use crate::toolbox::ToolBox;
 
@@ -260,6 +260,12 @@ impl<S: 'static, T: 'static> StageBuilder<S, T> {
         self
     }
 
+    /// Sets the reasoning effort override for this stage.
+    pub fn reasoning_effort(mut self, effort: ReasoningEffort) -> Self {
+        self.policy.reasoning_effort = Some(effort);
+        self
+    }
+
     /// Defines how the stage output `T` mutates the workflow state `&mut S`.
     pub fn reduce<F>(mut self, reducer: F) -> Self
     where
@@ -386,6 +392,10 @@ impl<'a, S: Send + Sync + 'static, T: DeserializeOwned + Send + 'static> LlmSess
             .map(|s| AiResponseFormat::Json {
                 schema: Some(s.clone()),
             })
+    }
+
+    fn reasoning_effort(&self) -> Option<ReasoningEffort> {
+        self.stage.policy.reasoning_effort
     }
 
     async fn call_tool(&mut self, name: &str, args: Value) -> Result<Value> {

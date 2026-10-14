@@ -101,6 +101,8 @@ pub struct GenerateContentRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingConfig {
     pub include_thoughts: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -431,6 +433,7 @@ pub struct GeminiClient {
     api_key: String,
     proxy_command: Option<String>,
     auth_token_command: Option<String>,
+    thinking_level: Option<String>,
     proxy_url: tokio::sync::OnceCell<String>,
     proxy_guard: tokio::sync::Mutex<Option<std::sync::Arc<ProxyGuard>>>,
     client: RwLock<Client>,
@@ -465,6 +468,12 @@ impl GeminiClient {
             .or_else(|| settings.and_then(|s| s.auth_token_command.clone()))
             .filter(|s| !s.trim().is_empty());
 
+        let thinking_level = settings
+            .and_then(|s| s.thinking_level.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_ascii_uppercase);
+
         let client = Self::create_http_client(&api_key);
 
         Self {
@@ -473,6 +482,7 @@ impl GeminiClient {
             api_key,
             proxy_command,
             auth_token_command,
+            thinking_level,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(client),
@@ -769,7 +779,15 @@ impl AiProvider for StdioGeminiClient {
 
 // --- Translation Helpers ---
 
+#[cfg(any(test, feature = "vertex"))]
 pub(crate) fn translate_ai_request(request: AiRequest) -> Result<GenerateContentRequest> {
+    translate_ai_request_with_thinking_level(request, None)
+}
+
+pub(crate) fn translate_ai_request_with_thinking_level(
+    request: AiRequest,
+    default_thinking_level: Option<&str>,
+) -> Result<GenerateContentRequest> {
     let mut contents: Vec<Content> = Vec::new();
     let mut system_instruction = None;
 
@@ -912,6 +930,16 @@ pub(crate) fn translate_ai_request(request: AiRequest) -> Result<GenerateContent
         }
     }
 
+    let thinking_level = request
+        .reasoning_effort
+        .map(|effort| effort.as_gemini_thinking_level().to_string())
+        .or_else(|| {
+            default_thinking_level
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_ascii_uppercase)
+        });
+
     Ok(GenerateContentRequest {
         contents,
         tools,
@@ -922,6 +950,7 @@ pub(crate) fn translate_ai_request(request: AiRequest) -> Result<GenerateContent
             temperature: request.temperature,
             thinking_config: Some(ThinkingConfig {
                 include_thoughts: true,
+                thinking_level,
             }),
         }),
     })
@@ -1061,7 +1090,8 @@ pub(crate) fn translate_ai_response(resp: GenerateContentResponse) -> Result<AiR
 #[async_trait]
 impl AiProvider for GeminiClient {
     async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
-        let gen_req = translate_ai_request(request)?;
+        let gen_req =
+            translate_ai_request_with_thinking_level(request, self.thinking_level.as_deref())?;
         let resp = GenAiClient::generate_content(self, gen_req).await?;
         translate_ai_response(resp)
     }
@@ -1074,8 +1104,15 @@ impl AiProvider for GeminiClient {
     }
 
     fn cache_identity(&self) -> String {
-        // base_url separates two endpoints serving the same model name.
-        crate::ai::cache_identity_with(&self.model, &[("base_url", Some(self.base_url.as_str()))])
+        // base_url separates two endpoints serving the same model name;
+        // thinking_level is the provider default when a request omits its own.
+        crate::ai::cache_identity_with(
+            &self.model,
+            &[
+                ("base_url", Some(self.base_url.as_str())),
+                ("thinking_level", self.thinking_level.as_deref()),
+            ],
+        )
     }
 }
 
@@ -1090,20 +1127,25 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn cache_identity_tracks_base_url() {
-        let client = |base_url: &str| GeminiClient {
+    fn cache_identity_tracks_base_url_and_thinking_level() {
+        let client = |base_url: &str, thinking_level: Option<&str>| GeminiClient {
             model: "gemini-2.5-pro".to_string(),
             base_url: base_url.to_string(),
             api_key: String::new(),
             proxy_command: None,
             auth_token_command: None,
+            thinking_level: thinking_level.map(str::to_string),
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
         };
         assert_ne!(
-            client("https://generativelanguage.googleapis.com").cache_identity(),
-            client("https://proxy.invalid").cache_identity()
+            client("https://generativelanguage.googleapis.com", None).cache_identity(),
+            client("https://proxy.invalid", None).cache_identity()
+        );
+        assert_ne!(
+            client("https://generativelanguage.googleapis.com", Some("MEDIUM")).cache_identity(),
+            client("https://generativelanguage.googleapis.com", Some("HIGH")).cache_identity()
         );
     }
 
@@ -1115,6 +1157,7 @@ mod tests {
             api_key: String::new(),
             proxy_command: Some("echo 18432 > {port_file}; sleep 10".to_string()),
             auth_token_command: None,
+            thinking_level: None,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
@@ -1141,6 +1184,7 @@ mod tests {
             api_key: String::new(),
             proxy_command: None,
             auth_token_command: Some("echo mock-bearer-token-xyz".to_string()),
+            thinking_level: None,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
@@ -1159,6 +1203,7 @@ mod tests {
             api_key: String::new(),
             proxy_command: None,
             auth_token_command: None,
+            thinking_level: None,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
@@ -1177,6 +1222,7 @@ mod tests {
             response_format: Some(AiResponseFormat::Text),
             temperature: Some(0.0),
             context_tag: None,
+            reasoning_effort: None,
         };
         let resp = AiProvider::generate_content(&client, req)
             .await
@@ -1347,6 +1393,7 @@ mod tests {
             api_key: String::new(),
             proxy_command: None,
             auth_token_command: None,
+            thinking_level: None,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(test_http::test_client()),
@@ -1625,6 +1672,7 @@ mod tests {
             temperature: Some(0.7),
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -1672,6 +1720,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -1757,6 +1806,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -1797,6 +1847,7 @@ mod tests {
                 schema: Some(schema.clone()),
             }),
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -1854,6 +1905,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -1941,6 +1993,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -1976,6 +2029,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -2024,6 +2078,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let gemini_req = translate_ai_request(request)?;
@@ -2076,5 +2131,65 @@ mod tests {
             summarize_gemini_error(reqwest::StatusCode::SERVICE_UNAVAILABLE, &go_link_json),
             "503 Service Unavailable: Service temporarily overloaded"
         );
+    }
+
+    #[test]
+    fn test_translate_ai_request_reasoning_effort_and_fallback() -> Result<()> {
+        let base_req = AiRequest {
+            system: None,
+            messages: vec![AiMessage {
+                role: AiRole::User,
+                content: Some("Check this.".to_string()),
+                thought: None,
+                thought_signature: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            tools: None,
+            temperature: None,
+            response_format: None,
+            context_tag: None,
+            reasoning_effort: None,
+        };
+
+        let none_req = translate_ai_request(base_req.clone())?;
+        assert_eq!(
+            none_req
+                .generation_config
+                .unwrap()
+                .thinking_config
+                .unwrap()
+                .thinking_level,
+            None
+        );
+
+        let fallback_req =
+            translate_ai_request_with_thinking_level(base_req.clone(), Some("medium"))?;
+        assert_eq!(
+            fallback_req
+                .generation_config
+                .unwrap()
+                .thinking_config
+                .unwrap()
+                .thinking_level
+                .as_deref(),
+            Some("MEDIUM")
+        );
+
+        let mut override_req = base_req;
+        override_req.reasoning_effort = Some(crate::ai::ReasoningEffort::High);
+        let translated = translate_ai_request_with_thinking_level(override_req, Some("medium"))?;
+        assert_eq!(
+            translated
+                .generation_config
+                .unwrap()
+                .thinking_config
+                .unwrap()
+                .thinking_level
+                .as_deref(),
+            Some("HIGH")
+        );
+
+        Ok(())
     }
 }

@@ -294,6 +294,11 @@ pub struct GeminiSettings {
     /// Can also be set via GEMINI_AUTH_TOKEN_COMMAND env var.
     #[serde(default)]
     pub auth_token_command: Option<String>,
+    /// Optional default thinking level sent as `thinkingConfig.thinkingLevel`
+    /// (`"LOW"`, `"MEDIUM"`, `"HIGH"`) when a stage does not specify a
+    /// per-request reasoning effort.
+    #[serde(default)]
+    pub thinking_level: Option<String>,
 }
 
 #[cfg(feature = "bedrock")]

@@ -14,6 +14,8 @@
 
 //! Policies governing stage limits, tool availability, retries, and errors.
 
+pub use crate::ai::ReasoningEffort;
+
 /// Defines which tools are exposed to the LLM during a stage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolScope {
@@ -60,6 +62,8 @@ pub struct StagePolicy {
     pub tools: ToolScope,
     /// Policy for handling recitation errors.
     pub recitation_policy: RecitationPolicy,
+    /// Optional per-stage reasoning effort override.
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 impl Default for StagePolicy {
@@ -76,6 +80,7 @@ impl Default for StagePolicy {
                  quote only short snippets (1-2 lines). Re-emit your JSON output now."
                     .to_string(),
             ),
+            reasoning_effort: None,
         }
     }
 }

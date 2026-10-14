@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use super::{
     AiErrorClass, AiMessage, AiProvider, AiRequest, AiResponse, AiResponseFormat, AiRole, AiTool,
-    AiUsage, ToolCall, classify_ai_error,
+    AiUsage, ReasoningEffort, ToolCall, classify_ai_error,
 };
 
 /// The unified result of executing an [`LlmSession`].
@@ -110,6 +110,11 @@ pub trait LlmSession: Send {
 
     /// Optional expected response format.
     fn response_format(&self) -> Option<AiResponseFormat> {
+        None
+    }
+
+    /// Optional reasoning effort override for this session.
+    fn reasoning_effort(&self) -> Option<ReasoningEffort> {
         None
     }
 
@@ -302,6 +307,7 @@ impl<'a> SessionRunner<'a> {
                 temperature: session.temperature(),
                 response_format: session.response_format(),
                 context_tag: session.context_tag(),
+                reasoning_effort: session.reasoning_effort(),
             };
 
             // Kept so that a rejected answer can be forgotten below.

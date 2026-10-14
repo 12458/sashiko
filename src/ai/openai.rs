@@ -716,6 +716,7 @@ mod tests {
             temperature: Some(0.7),
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -760,6 +761,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -796,6 +798,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -831,6 +834,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -867,6 +871,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -889,6 +894,7 @@ mod tests {
                 temperature: None,
                 response_format: None,
                 context_tag: None,
+                reasoning_effort: None,
             },
             4096,
             OpenAiProviderType::OpenAiCompatible,
@@ -941,6 +947,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -977,6 +984,7 @@ mod tests {
                 schema: Some(schema.clone()),
             }),
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -1011,6 +1019,7 @@ mod tests {
             temperature: None,
             response_format: Some(AiResponseFormat::Json { schema: None }),
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let openai_req = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -1048,6 +1057,7 @@ mod tests {
                     temperature: None,
                     response_format: Some(AiResponseFormat::Json { schema: None }),
                     context_tag: None,
+                    reasoning_effort: None,
                 },
                 4096,
                 OpenAiProviderType::OpenAiCompatible,
@@ -1076,6 +1086,7 @@ mod tests {
             temperature: None,
             response_format: Some(AiResponseFormat::Json { schema: None }),
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let translated = translate_ai_request(request, 4096, OpenAiProviderType::OpenAiCompatible)?;
@@ -1285,6 +1296,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let compat_req =
@@ -1501,6 +1513,7 @@ mod tests {
             temperature: Some(0.0),
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         client.generate_content(request.clone()).await?;
@@ -1556,6 +1569,7 @@ mod tests {
                 temperature,
                 response_format: None,
                 context_tag: None,
+                reasoning_effort: None,
             };
 
             assert!(client.generate_content(request).await.is_err());

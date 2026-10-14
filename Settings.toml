@@ -135,6 +135,7 @@ temperature = 1.0
 # base_url = "http://localhost:8000"  # Or set GOOGLE_GEMINI_BASE_URL env var
 # proxy_command = "scripts/gemini-proxy-helper.sh --port-file {port_file}"
 # auth_token_command = "gcloud auth print-access-token"
+# thinking_level = "HIGH"             # Default thinking level: "LOW", "MEDIUM", "HIGH"
 
 [ai.claude]
 prompt_caching = true

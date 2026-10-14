@@ -3858,6 +3858,7 @@ echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
                                 temperature: None,
                                 response_format: None,
                                 context_tag: None,
+                                reasoning_effort: None,
                             })
                             .await?;
 
@@ -3929,6 +3930,7 @@ echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
         let line = serde_json::to_string(&crate::ai::forget_envelope(&request))?;
         let mock_script = format!(

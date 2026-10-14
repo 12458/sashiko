@@ -713,6 +713,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         }
     }
 
@@ -902,6 +903,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let vllm_req = translate_vllm_request(request, None, None, false, false)?;

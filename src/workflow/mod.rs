@@ -26,6 +26,6 @@ pub use engine::{StageRunRecord, WorkflowEngine, WorkflowFailure, WorkflowOutcom
 pub use events::WorkflowEvent;
 pub use graph::{Workflow, WorkflowBuilder, WorkflowStep};
 pub use output::OutputFormat;
-pub use policy::{ParallelPolicy, RecitationPolicy, StagePolicy, ToolScope};
+pub use policy::{ParallelPolicy, ReasoningEffort, RecitationPolicy, StagePolicy, ToolScope};
 pub use prompt::{InclusionDirective, PromptTemplate};
 pub use stage::{ExecutableStage, Stage, StageBuilder, StageOutcome, StateMutation, WorkflowEnv};

@@ -150,6 +150,7 @@ Settings for the Gemini provider (`provider = "gemini"`).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `explicit_prompt_caching` | bool | `false` | Use explicit caching hints in requests. |
+| `thinking_level` | string | -- | Default thinking level sent as `thinkingConfig.thinkingLevel` (`"LOW"`, `"MEDIUM"`, `"HIGH"`) when a stage does not specify a per-request reasoning effort. |
 
 #### `[ai.openai_compat]`
 

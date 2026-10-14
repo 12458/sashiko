@@ -483,6 +483,7 @@ mod tests {
                 temperature: None,
                 response_format: None,
                 context_tag: None,
+                reasoning_effort: None,
             },
             false,
             1024,
@@ -788,6 +789,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let vertex_req = claude_request_body(&ai_req, false, 4096, None, None).unwrap();
@@ -821,6 +823,7 @@ mod tests {
             temperature: None,
             response_format: None,
             context_tag: None,
+            reasoning_effort: None,
         };
 
         let vertex_req = claude_request_body(
