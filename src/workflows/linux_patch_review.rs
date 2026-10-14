@@ -52,6 +52,10 @@ pub struct LinuxPatchReviewState {
     pub custom_prompt: Option<String>,
     /// Stages selected by dynamic planning (or overridden by manual_stages).
     pub planned_stages: Vec<String>,
+    /// Optional reasoning effort mode (`Mid`, `High`, or `Dynamic`).
+    pub effort: Option<crate::ai::EffortMode>,
+    /// Per-stage reasoning efforts selected by dynamic planning (`stage_name -> ReasoningEffort`).
+    pub planned_efforts: std::collections::BTreeMap<String, crate::ai::ReasoningEffort>,
     /// Skip plain-text report and summary generation stages (e.g. in `--agent` mode).
     pub skip_report: bool,
     /// Retain pre-existing concerns through verification and inline report generation.
@@ -101,9 +105,11 @@ pub struct PrescreenOutput {
     pub selected_prompts: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct PlanningOutput {
     pub relevant_stages: Vec<String>,
+    #[serde(default)]
+    pub stage_efforts: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -1432,6 +1438,12 @@ pub fn enrich_post_verification_output(
 // ---------------------------------------------------------------------------
 
 pub fn prescreen_stage() -> Stage<LinuxPatchReviewState, PrescreenOutput> {
+    prescreen_stage_with_effort(None)
+}
+
+pub fn prescreen_stage_with_effort(
+    effort: Option<crate::ai::EffortMode>,
+) -> Stage<LinuxPatchReviewState, PrescreenOutput> {
     Stage::builder("pre-screen")
         .system_prompt(PromptTemplate::<LinuxPatchReviewState>::new(
             "You are an AI assistant preparing a Linux kernel patch review.\nReview the provided Patch and select all potentially relevant subsystem guides from the index below.\nCRITICAL BIAS RULE: You MUST err on the side of inclusion. Only exclude a guide if it is 100% irrelevant to the modified code. If there is any doubt, include the file.\n\nYou MUST respond with ONLY a JSON object, no other text. Example:\n```json\n{\"selected_prompts\": [\"networking-core.md\", \"locking.md\"]}\n```",
@@ -1456,6 +1468,7 @@ pub fn prescreen_stage() -> Stage<LinuxPatchReviewState, PrescreenOutput> {
         .policy(StagePolicy {
             tools: ToolScope::None,
             max_turns: 1,
+            reasoning_effort: effort.map(crate::ai::EffortMode::lightweight_stage_effort),
             ..Default::default()
         })
         .skip_if(|s| s.manual_stages.is_some())
@@ -1468,20 +1481,175 @@ pub fn prescreen_stage() -> Stage<LinuxPatchReviewState, PrescreenOutput> {
                 .collect();
             state.selected_guides = prompts;
         })
-
         .build()
 }
 
+pub fn build_stage_efforts_schema(stages: &[AnalysisStage]) -> Value {
+    let mut props = serde_json::Map::new();
+    let mut required = Vec::new();
+    for def in stages {
+        props.insert(
+            def.name.to_string(),
+            json!({
+                "type": "string",
+                "enum": ["medium", "high"]
+            }),
+        );
+        if !def.optional {
+            required.push(json!(def.name));
+        }
+    }
+    json!({
+        "type": "object",
+        "properties": props,
+        "required": required,
+    })
+}
+
+pub fn apply_planning_stage_output(
+    stages_table: &'static [AnalysisStage],
+    stage_lookup: fn(&str) -> Option<&'static AnalysisStage>,
+    dynamic_effort: bool,
+    out: PlanningOutput,
+    planned_stages: &mut Vec<String>,
+    planned_efforts: &mut std::collections::BTreeMap<String, crate::ai::ReasoningEffort>,
+) {
+    // The stages the planner is not asked about run regardless. Its
+    // answer is then admitted only where it names an optional stage,
+    // which is what stops a hallucinated name reaching the resolver.
+    let mut stages: Vec<String> = stages_table
+        .iter()
+        .filter(|d| !d.optional)
+        .map(|d| d.name.to_string())
+        .collect();
+    for raw_name in out.relevant_stages {
+        if let Some(def) = stage_lookup(&raw_name) {
+            if def.optional && !stages.iter().any(|s| s == def.name) {
+                stages.push(def.name.to_string());
+            }
+        } else {
+            tracing::warn!("Ignoring unknown planned review stage {:?}", raw_name);
+        }
+    }
+    let mut efforts = std::collections::BTreeMap::new();
+    if dynamic_effort {
+        for (raw_stage, raw_effort) in out.stage_efforts {
+            if let Some(def) = stage_lookup(&raw_stage)
+                && let Some(effort) = crate::ai::ReasoningEffort::from_str_loose(&raw_effort)
+            {
+                let clamped = match effort {
+                    crate::ai::ReasoningEffort::Low => crate::ai::ReasoningEffort::Medium,
+                    other => other,
+                };
+                efforts.insert(def.name.to_string(), clamped);
+            }
+        }
+    }
+    *planned_stages = stages;
+    *planned_efforts = efforts;
+}
+
+pub fn validate_planning_stage_efforts(
+    stage_lookup: fn(&str) -> Option<&'static AnalysisStage>,
+    out: &PlanningOutput,
+) -> Result<(), String> {
+    if out.stage_efforts.is_empty() {
+        return Err(
+            "stage_efforts must not be empty when dynamic effort is enabled; provide a mapping of stage names to \"medium\" or \"high\"."
+                .to_string(),
+        );
+    }
+    for (raw_stage, raw_effort) in &out.stage_efforts {
+        if stage_lookup(raw_stage).is_none() {
+            return Err(format!(
+                "stage_efforts contains unknown stage {raw_stage:?}; provide valid analysis stage names."
+            ));
+        }
+        if crate::ai::ReasoningEffort::from_str_loose(raw_effort).is_none() {
+            return Err(format!(
+                "stage_efforts[{raw_stage:?}] has invalid effort {raw_effort:?}; expected \"medium\" or \"high\"."
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_planning_output_with_effort(
+    out: &PlanningOutput,
+    _state: &LinuxPatchReviewState,
+) -> Result<(), String> {
+    validate_planning_stage_efforts(analysis_stage_by_name, out)
+}
+
+pub fn format_planning_feedback(violation: &str) -> String {
+    format!(
+        "\n\nPrevious attempt was rejected: {}. Respond with ONLY a valid JSON object containing both \"relevant_stages\" and a non-empty \"stage_efforts\" object mapping each planned stage to \"medium\" or \"high\".",
+        violation
+    )
+}
+
 pub fn planning_stage() -> Stage<LinuxPatchReviewState, PlanningOutput> {
+    planning_stage_with_effort(None)
+}
+
+pub fn planning_stage_with_effort(
+    effort: Option<crate::ai::EffortMode>,
+) -> Stage<LinuxPatchReviewState, PlanningOutput> {
+    let dynamic_effort = effort == Some(crate::ai::EffortMode::Dynamic);
     let optional_stages: Vec<&'static str> = ANALYSIS_STAGES
         .iter()
         .filter(|d| d.optional)
         .map(|d| d.name)
         .collect();
 
-    Stage::builder("planning")
-        .system_prompt(linux_system_prompt(true))
-        .user_prompt(PromptTemplate::<LinuxPatchReviewState>::new(
+    let (user_prompt, output_format) = if dynamic_effort {
+        let stage_efforts_schema = build_stage_efforts_schema(ANALYSIS_STAGES);
+        (
+            r#"Analyze the provided patch and determine:
+1. Which of the following optional review stages are relevant and should be executed:
+- resources: Resource management (memory lifecycles, leaks, UAF, refcounts, cleanup)
+- locking: Locking and synchronization (spinlocks, mutexes, RCU, atomics, concurrency)
+- security: Security audit (user input boundaries, bounds checks, integer overflows, privilege checks)
+- hardware: Hardware engineer's review (device registers, DMA, IRQs, MMIO, hardware state machines)
+
+Include an optional stage when the patch touches or interacts with that domain; omit stages that are clearly irrelevant to the modified code (for example, omit hardware for pure software logic, or omit locking when no shared state or synchronization is involved). Core stages (goal, implementation, execution-flow) always run and should not be listed in relevant_stages.
+
+2. The reasoning effort ("medium" or "high") in stage_efforts for each stage that will run (goal, implementation, execution-flow, plus each stage selected in relevant_stages):
+- Use "high" for stages whose domain is central to the patch or where complex control flow, subtle error/teardown paths, concurrency, or non-trivial invariants must be verified.
+- Use "medium" for stages performing a routine check on a straightforward aspect of the patch.
+
+You MUST respond with ONLY a JSON object, no other text. Example:
+```json
+{
+  "relevant_stages": ["resources", "locking"],
+  "stage_efforts": {
+    "goal": "medium",
+    "implementation": "high",
+    "execution-flow": "high",
+    "resources": "high",
+    "locking": "medium"
+  }
+}
+```"#,
+            OutputFormat::json_with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "relevant_stages": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": optional_stages,
+                        }
+                    },
+                    "stage_efforts": stage_efforts_schema,
+                },
+                "required": ["relevant_stages", "stage_efforts"]
+            }))
+            .with_validator(validate_planning_output_with_effort)
+            .with_feedback_formatter(format_planning_feedback),
+        )
+    } else {
+        (
             r#"Analyze the provided patch and determine which of the following review stages are relevant and should be executed:
 - resources: Resource management
 - locking: Locking and synchronization
@@ -1494,45 +1662,42 @@ You MUST respond with ONLY a JSON object, no other text. Use the names exactly a
 ```json
 {"relevant_stages": ["resources", "locking", "security", "hardware"]}
 ```"#,
-        ))
-        .output_format(OutputFormat::json_with_schema(json!({
-            "type": "object",
-            "properties": {
-                "relevant_stages": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": optional_stages,
+            OutputFormat::json_with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "relevant_stages": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": optional_stages,
+                        }
                     }
-                }
-            },
-            "required": ["relevant_stages"]
-        })))
+                },
+                "required": ["relevant_stages"]
+            })),
+        )
+    };
+
+    Stage::builder("planning")
+        .system_prompt(linux_system_prompt(true))
+        .user_prompt(PromptTemplate::<LinuxPatchReviewState>::new(user_prompt))
+        .output_format(output_format)
         .policy(StagePolicy {
             tools: ToolScope::None,
             max_turns: 1,
+            reasoning_effort: effort.map(crate::ai::EffortMode::lightweight_stage_effort),
             ..Default::default()
         })
         .skip_if(|s| s.manual_stages.is_some())
-        .reduce(|state, out: PlanningOutput| {
-            // The stages the planner is not asked about run regardless. Its
-            // answer is then admitted only where it names an optional stage,
-            // which is what stops a hallucinated name reaching the resolver.
-            let mut stages: Vec<String> = ANALYSIS_STAGES
-                .iter()
-                .filter(|d| !d.optional)
-                .map(|d| d.name.to_string())
-                .collect();
-            for raw_name in out.relevant_stages {
-                if let Some(def) = analysis_stage_by_name(&raw_name) {
-                    if def.optional && !stages.iter().any(|s| s == def.name) {
-                        stages.push(def.name.to_string());
-                    }
-                } else {
-                    tracing::warn!("Ignoring unknown planned review stage {:?}", raw_name);
-                }
-            }
-            state.planned_stages = stages;
+        .reduce(move |state, out: PlanningOutput| {
+            apply_planning_stage_output(
+                ANALYSIS_STAGES,
+                analysis_stage_by_name,
+                dynamic_effort,
+                out,
+                &mut state.planned_stages,
+                &mut state.planned_efforts,
+            );
         })
         .build()
 }
@@ -1770,6 +1935,7 @@ fn analysis_stage(
     def: &'static AnalysisStage,
     max_turns: usize,
     temperature: f32,
+    reasoning_effort: Option<crate::ai::ReasoningEffort>,
 ) -> Box<dyn ExecutableStage<LinuxPatchReviewState>> {
     let mut user_template = PromptTemplate::<LinuxPatchReviewState>::new(format!(
         "{}\n\n{}{}",
@@ -1795,6 +1961,7 @@ fn analysis_stage(
                 tools: ToolScope::All,
                 max_turns,
                 temperature,
+                reasoning_effort,
                 ..Default::default()
             })
             .reduce_with_outcome(
@@ -1822,6 +1989,15 @@ fn analysis_stage(
     )
 }
 
+pub fn resolve_stage_effort(
+    state: &LinuxPatchReviewState,
+    stage_name: &str,
+) -> Option<crate::ai::ReasoningEffort> {
+    state
+        .effort
+        .map(|mode| mode.analysis_stage_effort(state.planned_efforts.get(stage_name).copied()))
+}
+
 pub fn resolve_analysis_stages_with_options(
     state: &LinuxPatchReviewState,
     max_turns: usize,
@@ -1838,7 +2014,10 @@ pub fn resolve_analysis_stages_with_options(
     let mut stages = Vec::new();
     for name in selected_stages {
         match analysis_stage_by_name(&name) {
-            Some(def) => stages.push(analysis_stage(def, max_turns, temperature)),
+            Some(def) => {
+                let effort = resolve_stage_effort(state, def.name);
+                stages.push(analysis_stage(def, max_turns, temperature, effort));
+            }
             // Previously an unrecognised entry was dropped in silence, so a
             // mistyped --stages looked like it had worked.
             None => tracing::warn!("Ignoring unknown review stage {:?}", name),
@@ -2029,6 +2208,14 @@ pub fn verification_stage(
     max_turns: usize,
     temperature: f32,
 ) -> Stage<LinuxPatchReviewState, VerificationOutput> {
+    verification_stage_with_effort(max_turns, temperature, None)
+}
+
+pub fn verification_stage_with_effort(
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
+) -> Stage<LinuxPatchReviewState, VerificationOutput> {
     let series_context = series_context_placeholder(VERIFICATION.wants_series_context);
     let user_template = with_series_context(
         PromptTemplate::<LinuxPatchReviewState>::new(format!(
@@ -2132,6 +2319,7 @@ Example Output:
             tools: ToolScope::All,
             max_turns,
             temperature,
+            reasoning_effort: effort.map(crate::ai::EffortMode::verification_stage_effort),
             ..Default::default()
         })
         .reduce_with_outcome(|state, out: VerificationOutput, outcome| {
@@ -2145,6 +2333,16 @@ pub fn post_verification_stage(
     batch: Vec<Value>,
     max_turns: usize,
     temperature: f32,
+) -> Stage<LinuxPatchReviewState, PostVerificationOutput> {
+    post_verification_stage_with_effort(stage_name, batch, max_turns, temperature, None)
+}
+
+pub fn post_verification_stage_with_effort(
+    stage_name: &'static str,
+    batch: Vec<Value>,
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
 ) -> Stage<LinuxPatchReviewState, PostVerificationOutput> {
     let candidate_json = serde_json::to_string_pretty(&batch).unwrap_or_default();
     let batch_for_prompts = batch.clone();
@@ -2238,6 +2436,7 @@ Example Output:
             tools: ToolScope::All,
             max_turns,
             temperature,
+            reasoning_effort: effort.map(crate::ai::EffortMode::verification_stage_effort),
             ..Default::default()
         })
         .reduce_with_outcome(move |state, out: PostVerificationOutput, outcome| {
@@ -2259,11 +2458,12 @@ pub fn post_verification_stage_for_batch(
     max_turns: usize,
     temperature: f32,
 ) -> Box<dyn ExecutableStage<LinuxPatchReviewState>> {
-    Box::new(post_verification_stage(
+    Box::new(post_verification_stage_with_effort(
         stage_name,
         batch,
         max_turns,
         temperature,
+        None,
     ))
 }
 
@@ -2272,18 +2472,33 @@ pub fn resolve_post_verification_stages_with_options(
     max_turns: usize,
     temperature: f32,
 ) -> Vec<Box<dyn ExecutableStage<LinuxPatchReviewState>>> {
+    let effort = state.effort;
     let batches = batch_hard_cases_by_severity(&state.hard_cases);
     batches
         .into_iter()
         .enumerate()
         .map(|(idx, batch)| {
             let stage_name = POST_VERIFICATION_STAGE_NAMES[idx];
-            post_verification_stage_for_batch(stage_name, batch, max_turns, temperature)
+            Box::new(post_verification_stage_with_effort(
+                stage_name,
+                batch,
+                max_turns,
+                temperature,
+                effort,
+            )) as Box<dyn ExecutableStage<LinuxPatchReviewState>>
         })
         .collect()
 }
 
 pub fn report_stage(max_turns: usize, temperature: f32) -> Stage<LinuxPatchReviewState, String> {
+    report_stage_with_effort(max_turns, temperature, None)
+}
+
+pub fn report_stage_with_effort(
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
+) -> Stage<LinuxPatchReviewState, String> {
     Stage::builder(REPORT.name)
         .system_prompt(linux_system_prompt(true))
         .user_prompt(
@@ -2308,6 +2523,7 @@ Return raw text output, not JSON."#
             tools: ToolScope::All,
             max_turns,
             temperature,
+            reasoning_effort: effort.map(crate::ai::EffortMode::lightweight_stage_effort),
             recitation_policy: RecitationPolicy::FallbackToFreeForm {
                 reminder: "CRITICAL OVERRIDE: Your previous response was blocked by the API recitation filter for quoting the patch diff verbatim. Ignore the diff-quoting instructions in inline-template.md. Do NOT quote any code or diff lines with '>'. Instead, start with the Commit/Author/Subject headers, write the summary, and describe each finding directly by referencing file names, function names, and line numbers in plain prose.".to_string(),
             },
@@ -2334,10 +2550,19 @@ pub fn build_linux_patch_review_workflow_with_options(
     max_turns: usize,
     temperature: f32,
 ) -> Workflow<LinuxPatchReviewState> {
+    build_linux_patch_review_workflow_with_effort(max_turns, temperature, None)
+}
+
+/// Constructs the declarative workflow with optional reasoning effort mode.
+pub fn build_linux_patch_review_workflow_with_effort(
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
+) -> Workflow<LinuxPatchReviewState> {
     Workflow::builder("linux_patch_review")
-        .stage(prescreen_stage())
+        .stage(prescreen_stage_with_effort(effort))
         .dynamic_parallel(
-            planning_stage(),
+            planning_stage_with_effort(effort),
             move |state| resolve_analysis_stages_with_options(state, max_turns, temperature),
             ParallelPolicy::BestEffort,
         )
@@ -2346,7 +2571,7 @@ pub fn build_linux_patch_review_workflow_with_options(
             "No concerns or dismissed concerns raised in initial analysis stages",
         )
         .dynamic_parallel(
-            verification_stage(max_turns, temperature),
+            verification_stage_with_effort(max_turns, temperature, effort),
             move |state| {
                 resolve_post_verification_stages_with_options(state, max_turns, temperature)
             },
@@ -2356,7 +2581,7 @@ pub fn build_linux_patch_review_workflow_with_options(
             |s| s.findings.is_empty(),
             "No findings validated in verification stages",
         )
-        .stage(report_stage(max_turns, temperature))
+        .stage(report_stage_with_effort(max_turns, temperature, effort))
         .build()
 }
 
@@ -2569,6 +2794,7 @@ mod tests {
                 "  security  ".to_string(),
                 "nonexistent_stage".to_string(),
             ],
+            stage_efforts: Default::default(),
         };
         (stage.reducer)(&mut state, output);
         assert_eq!(
@@ -2582,6 +2808,131 @@ mod tests {
                 "security"
             ]
         );
+    }
+
+    #[test]
+    fn test_planning_stage_with_effort_parses_and_clamps_stage_efforts() {
+        let stage = planning_stage_with_effort(Some(crate::ai::EffortMode::Dynamic));
+        assert_eq!(
+            stage.policy.reasoning_effort,
+            Some(crate::ai::ReasoningEffort::Low)
+        );
+        if let OutputFormat::Json {
+            schema: Some(ref s),
+            ..
+        } = stage.output_format
+        {
+            assert!(s["properties"]["stage_efforts"].is_object());
+        } else {
+            panic!("expected planning_stage_with_effort(Some(Dynamic)) to use json_with_schema");
+        }
+
+        let mut state = LinuxPatchReviewState {
+            effort: Some(crate::ai::EffortMode::Dynamic),
+            ..Default::default()
+        };
+        assert!(
+            stage
+                .output_format
+                .validate(r#"{"relevant_stages": []}"#, &state)
+                .is_err()
+        );
+        assert!(
+            stage
+                .output_format
+                .validate(
+                    r#"{"relevant_stages": [], "stage_efforts": {"goal": "medium"}}"#,
+                    &state
+                )
+                .is_ok()
+        );
+        assert!(
+            stage
+                .output_format
+                .validate(
+                    r#"{"relevant_stages": [], "stage_efforts": {"unknown_stage": "medium"}}"#,
+                    &state
+                )
+                .is_err()
+        );
+        assert!(
+            stage
+                .output_format
+                .validate(
+                    r#"{"relevant_stages": [], "stage_efforts": {"goal": "invalid_effort"}}"#,
+                    &state
+                )
+                .is_err()
+        );
+        let output = PlanningOutput {
+            relevant_stages: vec!["resources".to_string()],
+            stage_efforts: [
+                ("goal".to_string(), "medium".to_string()),
+                ("implementation".to_string(), "high".to_string()),
+                ("execution_flow".to_string(), "low".to_string()),
+                ("stage_resources".to_string(), "HIGH".to_string()),
+                ("unknown_stage".to_string(), "medium".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        (stage.reducer)(&mut state, output);
+
+        assert_eq!(
+            resolve_stage_effort(&state, "goal"),
+            Some(crate::ai::ReasoningEffort::Medium)
+        );
+        assert_eq!(
+            resolve_stage_effort(&state, "implementation"),
+            Some(crate::ai::ReasoningEffort::High)
+        );
+        // "low" is clamped up to Medium for analysis stages
+        assert_eq!(
+            resolve_stage_effort(&state, "execution-flow"),
+            Some(crate::ai::ReasoningEffort::Medium)
+        );
+        assert_eq!(
+            resolve_stage_effort(&state, "resources"),
+            Some(crate::ai::ReasoningEffort::High)
+        );
+        // Unlisted stage defaults to High when dynamic effort is enabled
+        assert_eq!(
+            resolve_stage_effort(&state, "locking"),
+            Some(crate::ai::ReasoningEffort::High)
+        );
+
+        // Uniform Mid and High modes apply their fixed effort across stages without planning stage_efforts.
+        let mid_stage = planning_stage_with_effort(Some(crate::ai::EffortMode::Mid));
+        assert_eq!(
+            mid_stage.policy.reasoning_effort,
+            Some(crate::ai::ReasoningEffort::Medium)
+        );
+        assert_eq!(
+            verification_stage_with_effort(20, 0.0, Some(crate::ai::EffortMode::Mid))
+                .policy
+                .reasoning_effort,
+            Some(crate::ai::ReasoningEffort::Medium)
+        );
+        state.effort = Some(crate::ai::EffortMode::Mid);
+        assert_eq!(
+            resolve_stage_effort(&state, "implementation"),
+            Some(crate::ai::ReasoningEffort::Medium)
+        );
+
+        state.effort = Some(crate::ai::EffortMode::High);
+        assert_eq!(
+            resolve_stage_effort(&state, "goal"),
+            Some(crate::ai::ReasoningEffort::High)
+        );
+        assert_eq!(
+            report_stage_with_effort(20, 0.0, Some(crate::ai::EffortMode::High))
+                .policy
+                .reasoning_effort,
+            Some(crate::ai::ReasoningEffort::High)
+        );
+
+        state.effort = None;
+        assert_eq!(resolve_stage_effort(&state, "goal"), None);
     }
 
     #[test]

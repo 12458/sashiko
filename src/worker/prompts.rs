@@ -54,10 +54,10 @@ impl ClassifyAiError for ReviewError {
 use crate::project::ProjectId;
 use crate::workflow::{WorkflowEngine, WorkflowEnv, WorkflowEvent};
 use crate::workflows::linux_patch_review::{
-    LinuxPatchReviewState, build_linux_patch_review_workflow_with_options, linux_system_prompt,
+    LinuxPatchReviewState, build_linux_patch_review_workflow_with_effort, linux_system_prompt,
 };
 use crate::workflows::sashiko_patch_review::{
-    build_sashiko_patch_review_workflow_with_options, sashiko_system_prompt,
+    build_sashiko_patch_review_workflow_with_effort, sashiko_system_prompt,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -100,6 +100,7 @@ pub struct WorkerConfig {
     pub stages: Option<Vec<String>>,
     pub skip_report: bool,
     pub report_preexisting: bool,
+    pub effort: Option<crate::ai::EffortMode>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +183,7 @@ pub struct Worker {
     custom_prompt: Option<String>,
     skip_report: bool,
     report_preexisting: bool,
+    effort: Option<crate::ai::EffortMode>,
 }
 
 impl Worker {
@@ -206,6 +208,7 @@ impl Worker {
             custom_prompt: config.custom_prompt,
             skip_report: config.skip_report,
             report_preexisting: config.report_preexisting,
+            effort: config.effort,
         }
     }
 
@@ -351,6 +354,8 @@ impl Worker {
             manual_stages: self.stages.clone(),
             custom_prompt: self.custom_prompt.clone(),
             planned_stages: Vec::new(),
+            effort: self.effort,
+            planned_efforts: std::collections::BTreeMap::new(),
             skip_report: self.skip_report,
             report_preexisting: self.report_preexisting,
             project: self.project.as_str().to_string(),
@@ -386,13 +391,15 @@ impl Worker {
         }
 
         let workflow = match self.project {
-            ProjectId::Linux => build_linux_patch_review_workflow_with_options(
+            ProjectId::Linux => build_linux_patch_review_workflow_with_effort(
                 self.max_interactions,
                 self.temperature,
+                self.effort,
             ),
-            ProjectId::Sashiko => build_sashiko_patch_review_workflow_with_options(
+            ProjectId::Sashiko => build_sashiko_patch_review_workflow_with_effort(
                 self.max_interactions,
                 self.temperature,
+                self.effort,
             ),
         };
         let env = WorkflowEnv {
@@ -1038,6 +1045,7 @@ mod tests {
             stages: None,
             skip_report: false,
             report_preexisting: false,
+            effort: None,
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
 
@@ -1148,6 +1156,7 @@ mod tests {
             stages: Some(vec!["goal".to_string()]),
             skip_report: false,
             report_preexisting: false,
+            effort: None,
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
 
@@ -1185,6 +1194,7 @@ mod tests {
             stages: Some(vec!["goal".to_string()]),
             skip_report: false,
             report_preexisting: false,
+            effort: None,
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
 
@@ -1226,6 +1236,7 @@ mod tests {
             stages: Some(vec!["goal".to_string()]),
             skip_report: false,
             report_preexisting: false,
+            effort: None,
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
 
@@ -1328,6 +1339,7 @@ mod tests {
             stages: Some(vec!["goal".to_string()]),
             skip_report: false,
             report_preexisting: false,
+            effort: None,
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
 
@@ -1512,6 +1524,7 @@ mod tests {
                 stages: Some(vec!["goal".to_string()]),
                 skip_report: true,
                 report_preexisting: false,
+                effort: None,
             };
             let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
 
@@ -1612,6 +1625,7 @@ mod tests {
                 stages: Some(vec!["goal".to_string()]),
                 skip_report: false,
                 report_preexisting: false,
+                effort: None,
             },
         );
         let out_default = worker_default
@@ -1643,6 +1657,7 @@ mod tests {
                 stages: Some(vec!["goal".to_string()]),
                 skip_report: false,
                 report_preexisting: true,
+                effort: None,
             },
         );
         let out_preexisting = worker_preexisting

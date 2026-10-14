@@ -144,6 +144,87 @@ impl ReasoningEffort {
             Self::High => "HIGH",
         }
     }
+
+    /// Parses a reasoning effort string case-insensitively (`"low"`, `"medium"`, `"mid"`, `"high"`).
+    pub fn from_str_loose(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "low" => Some(Self::Low),
+            "medium" | "mid" => Some(Self::Medium),
+            "high" => Some(Self::High),
+            _ => None,
+        }
+    }
+}
+
+/// Configurable reasoning effort mode for models that support effort levels
+/// (currently Argon 4).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum EffortMode {
+    /// Uniform `Medium` reasoning effort across all review stages (default
+    /// when the model supports effort levels).
+    #[default]
+    #[serde(alias = "medium")]
+    Mid,
+    /// Uniform `High` reasoning effort across all review stages.
+    High,
+    /// Dynamic per-stage reasoning effort: `Low` for screening, planning,
+    /// report, and summary stages; planned `Medium` or `High` per analysis
+    /// stage; `High` for verification and post-verification stages.
+    Dynamic,
+}
+
+impl EffortMode {
+    /// Returns the canonical lowercase string (`"mid"`, `"high"`, `"dynamic"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mid => "mid",
+            Self::High => "high",
+            Self::Dynamic => "dynamic",
+        }
+    }
+
+    /// Reasoning effort for lightweight stages (`pre-screen`, `planning`,
+    /// `report`, `summary`).
+    pub fn lightweight_stage_effort(self) -> ReasoningEffort {
+        match self {
+            Self::Mid => ReasoningEffort::Medium,
+            Self::High => ReasoningEffort::High,
+            Self::Dynamic => ReasoningEffort::Low,
+        }
+    }
+
+    /// Reasoning effort for verification stages (`verification`,
+    /// `post-verification`).
+    pub fn verification_stage_effort(self) -> ReasoningEffort {
+        match self {
+            Self::Mid => ReasoningEffort::Medium,
+            Self::High | Self::Dynamic => ReasoningEffort::High,
+        }
+    }
+
+    /// Reasoning effort for an analysis stage given the optional effort
+    /// selected by the planning stage.
+    pub fn analysis_stage_effort(self, planned: Option<ReasoningEffort>) -> ReasoningEffort {
+        match self {
+            Self::Mid => ReasoningEffort::Medium,
+            Self::High => ReasoningEffort::High,
+            Self::Dynamic => planned.unwrap_or(ReasoningEffort::High),
+        }
+    }
+}
+
+impl std::fmt::Display for EffortMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Returns whether `model` supports configurable reasoning effort levels.
+///
+/// Currently only Argon 4 (`gemini-4-argon`) supports this setting.
+pub fn model_supports_effort(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("argon")
 }
 
 /// A generic AI request containing conversation history and configuration.

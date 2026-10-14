@@ -2464,6 +2464,10 @@ async fn run_review_tool_with_cmd(
         cmd.arg("--stages").arg(stages_str);
     }
 
+    if let Some(effort) = settings.review.effort {
+        cmd.arg("--effort").arg(effort.as_str());
+    }
+
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());

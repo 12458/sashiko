@@ -29,7 +29,7 @@ use sashiko::project::ProjectId;
 use sashiko::prompt_bundle;
 #[cfg(feature = "server")]
 use sashiko::reviewer::Reviewer;
-use sashiko::settings::{Overrides, Settings};
+use sashiko::settings::{EffortMode, Overrides, Settings};
 use serde_json::Value;
 use std::io::IsTerminal;
 use std::io::Write;
@@ -81,6 +81,10 @@ struct Cli {
     /// Debug feature: run only these analysis stages, by name
     #[arg(long, hide = true, value_delimiter = ',')]
     stages: Option<Vec<String>>,
+
+    /// Reasoning effort mode override (mid, high, or dynamic) for supported models
+    #[arg(long)]
+    effort: Option<EffortMode>,
 
     /// The codebase to review (default: the configured project, else linux)
     ///
@@ -143,6 +147,10 @@ enum Commands {
         /// AI provider override
         #[arg(long)]
         ai_provider: Option<String>,
+
+        /// Reasoning effort mode override (mid, high, or dynamic) for supported models
+        #[arg(long)]
+        effort: Option<EffortMode>,
 
         /// Prompt directory
         #[arg(long)]
@@ -208,6 +216,10 @@ enum Commands {
         #[arg(long)]
         ai_provider: Option<String>,
 
+        /// Reasoning effort mode override (mid, high, or dynamic) for supported models
+        #[arg(long)]
+        effort: Option<EffortMode>,
+
         /// Custom prompt to append to the review task
         #[arg(long)]
         custom_prompt: Option<String>,
@@ -253,11 +265,13 @@ fn cli_overrides(cli: &Cli) -> Overrides {
         Some(Commands::Review {
             no_ai,
             ai_provider,
+            effort,
             stages,
             ..
         }) => Overrides {
             no_ai: *no_ai,
             ai_provider: ai_provider.clone(),
+            effort: effort.or(cli.effort),
             stages: stages.clone(),
             ..Default::default()
         },
@@ -266,6 +280,7 @@ fn cli_overrides(cli: &Cli) -> Overrides {
             worktree_dir,
             no_ai,
             ai_provider,
+            effort,
             stages,
             ..
         }) => Overrides {
@@ -273,11 +288,13 @@ fn cli_overrides(cli: &Cli) -> Overrides {
             worktree_dir: worktree_dir.as_deref().map(path_string),
             no_ai: *no_ai,
             ai_provider: ai_provider.clone(),
+            effort: effort.or(cli.effort),
             stages: stages.clone(),
             ..Default::default()
         },
         None => Overrides {
             no_ai: cli.no_ai,
+            effort: cli.effort,
             stages: cli.stages.clone(),
             read_only: cli.no_api,
             port: cli.port,
@@ -4745,6 +4762,12 @@ mod tests {
             }
             _ => panic!("expected review command"),
         }
+
+        let before = Cli::parse_from(["sashiko", "--effort", "high", "review"]);
+        assert_eq!(cli_overrides(&before).effort, Some(EffortMode::High));
+
+        let after = Cli::parse_from(["sashiko", "review", "--effort", "dynamic"]);
+        assert_eq!(cli_overrides(&after).effort, Some(EffortMode::Dynamic));
     }
 
     #[test]

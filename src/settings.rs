@@ -16,6 +16,7 @@ use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+pub use crate::ai::{EffortMode, model_supports_effort};
 use crate::project::ProjectId;
 
 /// The name of the file holding the server's local operator token.
@@ -875,8 +876,29 @@ pub struct ReviewSettings {
     /// Conservative default; set to 0 to disable.
     #[serde(default = "default_max_total_output_tokens")]
     pub max_total_output_tokens: usize,
+    /// Reasoning effort mode (`"mid"`, `"high"`, or `"dynamic"`) for models
+    /// that support configurable effort levels (currently Argon 4). Defaults
+    /// to `"mid"` when the model supports effort levels and is ignored
+    /// otherwise.
+    #[serde(default)]
+    pub effort: Option<EffortMode>,
     #[serde(skip)]
     pub stages: Option<Vec<String>>,
+}
+
+impl ReviewSettings {
+    /// Resolves the effective reasoning effort mode for `model`.
+    ///
+    /// Returns `None` when `model` does not support configurable effort levels
+    /// (currently only Argon 4 supports it). When `model` supports effort
+    /// levels, returns the configured `effort` or defaults to
+    /// [`EffortMode::Mid`].
+    pub fn effective_effort(&self, model: &str) -> Option<EffortMode> {
+        if !model_supports_effort(model) {
+            return None;
+        }
+        Some(self.effort.unwrap_or(EffortMode::Mid))
+    }
 }
 
 fn default_max_total_tokens() -> usize {
@@ -1019,6 +1041,7 @@ pub struct Overrides {
     pub worktree_dir: Option<String>,
     pub no_ai: bool,
     pub ai_provider: Option<String>,
+    pub effort: Option<EffortMode>,
     pub stages: Option<Vec<String>>,
     pub read_only: bool,
     pub port: Option<u16>,
@@ -1047,6 +1070,9 @@ impl Settings {
         if let Some(provider) = overrides.ai_provider {
             self.ai.provider = provider;
         }
+        if let Some(effort) = overrides.effort {
+            self.review.effort = Some(effort);
+        }
         if overrides.read_only {
             changed.push("API enabled in READ-ONLY mode via --no-api flag".to_string());
             self.server.read_only = true;
@@ -1060,6 +1086,16 @@ impl Settings {
             self.review.stages = Some(stages);
         }
         changed
+    }
+
+    /// Resolves the effective reasoning effort mode for this configuration.
+    ///
+    /// Returns `None` when `self.ai.model` does not support configurable
+    /// effort levels (currently only Argon 4 supports it). When the model
+    /// supports effort levels, resolves `[review] effort` and defaults to
+    /// [`EffortMode::Mid`].
+    pub fn effective_effort(&self) -> Option<EffortMode> {
+        self.review.effective_effort(&self.ai.model)
     }
 
     /// Refuses a configuration that names no database, no repository, or no
@@ -1430,6 +1466,7 @@ mod tests {
             worktree_dir: Some("from_flag".to_string()),
             no_ai: true,
             ai_provider: Some("stdio-claude".to_string()),
+            effort: Some(EffortMode::Dynamic),
             stages: Some(vec!["pre-screen".to_string()]),
             read_only: true,
             port: Some(9090),
@@ -1449,6 +1486,7 @@ mod tests {
         assert_eq!(settings.review.worktree_dir.as_deref(), Some("from_flag"));
         assert!(settings.ai.no_ai);
         assert_eq!(settings.ai.provider, "stdio-claude");
+        assert_eq!(settings.review.effort, Some(EffortMode::Dynamic));
         assert_eq!(
             settings.review.stages.as_deref(),
             Some(&["pre-screen".to_string()][..])
@@ -1813,5 +1851,59 @@ mod tests {
         assert!(custom.fix_check_enabled);
         assert_eq!(custom.fix_check_interval_seconds, 3600);
         assert_eq!(custom.fix_check_batch_size, 20);
+    }
+
+    #[test]
+    fn test_effort_mode_is_gated_on_model_and_defaults_to_mid_for_argon() {
+        let mut review: ReviewSettings = toml::from_str("concurrency = 1").unwrap();
+        assert_eq!(review.effort, None);
+
+        // Non-Argon models do not support configurable effort levels.
+        assert_eq!(review.effective_effort("gemini-3.1-pro-preview"), None);
+        assert_eq!(review.effective_effort("claude-sonnet-4-6"), None);
+
+        // Argon models default to EffortMode::Mid when effort is unset.
+        assert_eq!(
+            review.effective_effort("gemini-4-argon"),
+            Some(EffortMode::Mid)
+        );
+        assert_eq!(
+            review.effective_effort("Gemini-Argon-Preview"),
+            Some(EffortMode::Mid)
+        );
+
+        // Explicit "high" and "dynamic" are respected on Argon and ignored on non-Argon.
+        review.effort = Some(EffortMode::High);
+        assert_eq!(
+            review.effective_effort("gemini-4-argon"),
+            Some(EffortMode::High)
+        );
+        assert_eq!(review.effective_effort("gemini-3.1-pro-preview"), None);
+
+        let dynamic: ReviewSettings =
+            toml::from_str("concurrency = 1\neffort = \"dynamic\"").unwrap();
+        assert_eq!(
+            dynamic.effective_effort("gemini-4-argon"),
+            Some(EffortMode::Dynamic)
+        );
+
+        let mid_alias: ReviewSettings =
+            toml::from_str("concurrency = 1\neffort = \"medium\"").unwrap();
+        assert_eq!(mid_alias.effort, Some(EffortMode::Mid));
+
+        // Settings::effective_effort delegates to review.effective_effort(&ai.model).
+        let mut settings = Settings::new().unwrap();
+        settings.ai.model = "gemini-4-argon".to_string();
+        settings.review.effort = None;
+        assert_eq!(settings.effective_effort(), Some(EffortMode::Mid));
+
+        settings.review.effort = Some(EffortMode::Dynamic);
+        assert_eq!(settings.effective_effort(), Some(EffortMode::Dynamic));
+
+        settings.review.effort = Some(EffortMode::High);
+        assert_eq!(settings.effective_effort(), Some(EffortMode::High));
+
+        settings.ai.model = "gemini-3.1-pro-preview".to_string();
+        assert_eq!(settings.effective_effort(), None);
     }
 }

@@ -30,10 +30,12 @@ use crate::workflows::linux_patch_review::{
     AnalysisStage, ConsolidationStage, LinuxPatchReviewState, POST_VERIFICATION_STAGE_NAMES,
     PlanningOutput, PostVerificationOutput, PrescreenOutput, SERIES_CONTEXT_PLACEHOLDER,
     StageConcernsOutput, VerificationOutput, append_stage_dismissed_concerns_with_prompts,
-    append_stage_items_with_prompts, apply_post_verification_stage_output,
-    apply_verification_stage_output, batch_hard_cases_by_severity, collect_stage_prompts,
-    extra_prompt_paths_for_items, extra_prompt_paths_for_state, format_post_verification_feedback,
-    format_verification_stage_feedback, has_valid_proof_location,
+    append_stage_items_with_prompts, apply_planning_stage_output,
+    apply_post_verification_stage_output, apply_verification_stage_output,
+    batch_hard_cases_by_severity, build_stage_efforts_schema, collect_stage_prompts,
+    extra_prompt_paths_for_items, extra_prompt_paths_for_state, format_planning_feedback,
+    format_post_verification_feedback, format_verification_stage_feedback,
+    has_valid_proof_location, resolve_stage_effort, validate_planning_stage_efforts,
     validate_post_verification_batch_items, validate_verification_stage_output,
 };
 
@@ -748,6 +750,12 @@ fn format_summary_feedback(violation: &str) -> String {
 // ---------------------------------------------------------------------------
 
 pub fn prescreen_stage() -> Stage<SashikoPatchReviewState, PrescreenOutput> {
+    prescreen_stage_with_effort(None)
+}
+
+pub fn prescreen_stage_with_effort(
+    effort: Option<crate::ai::EffortMode>,
+) -> Stage<SashikoPatchReviewState, PrescreenOutput> {
     Stage::builder("pre-screen")
         .system_prompt(PromptTemplate::<SashikoPatchReviewState>::new(
             "You are an AI assistant preparing a Sashiko codebase patch review.\nReview the provided Patch and select all potentially relevant component and pattern guides from the index below.\nCRITICAL BIAS RULE: You MUST err on the side of inclusion. Only exclude a guide if it is 100% irrelevant to the modified code. If there is any doubt, include the file.\n\nYou MUST respond with ONLY a JSON object, no other text. Example:\n```json\n{\"selected_prompts\": [\"workflow-engine.md\", \"rust-async.md\"]}\n```",
@@ -774,6 +782,7 @@ pub fn prescreen_stage() -> Stage<SashikoPatchReviewState, PrescreenOutput> {
         .policy(StagePolicy {
             tools: ToolScope::None,
             max_turns: 1,
+            reasoning_effort: effort.map(crate::ai::EffortMode::lightweight_stage_effort),
             ..Default::default()
         })
         .skip_if(|s| s.manual_stages.is_some())
@@ -789,7 +798,21 @@ pub fn prescreen_stage() -> Stage<SashikoPatchReviewState, PrescreenOutput> {
         .build()
 }
 
+pub fn validate_sashiko_planning_output_with_effort(
+    out: &PlanningOutput,
+    _state: &SashikoPatchReviewState,
+) -> Result<(), String> {
+    validate_planning_stage_efforts(analysis_stage_by_name, out)
+}
+
 pub fn planning_stage() -> Stage<SashikoPatchReviewState, PlanningOutput> {
+    planning_stage_with_effort(None)
+}
+
+pub fn planning_stage_with_effort(
+    effort: Option<crate::ai::EffortMode>,
+) -> Stage<SashikoPatchReviewState, PlanningOutput> {
+    let dynamic_effort = effort == Some(crate::ai::EffortMode::Dynamic);
     let optional_stages: Vec<&'static str> = ANALYSIS_STAGES
         .iter()
         .filter(|s| s.optional)
@@ -797,10 +820,46 @@ pub fn planning_stage() -> Stage<SashikoPatchReviewState, PlanningOutput> {
         .collect();
     let optional_list = optional_stages.join(", ");
 
+    let (sys_prompt, output_format) = if dynamic_effort {
+        let stage_efforts_schema = build_stage_efforts_schema(ANALYSIS_STAGES);
+        (
+            format!(
+                "You are an AI assistant planning a Sashiko patch review.\nThe core stages (goal, implementation, execution-flow) always run.\n1. Select which optional specialized stages should also run based on the patch contents.\nAvailable optional stages: [{optional_list}]\nInclude an optional stage when the patch touches or interacts with that domain; omit stages that are clearly irrelevant to the modified code.\n\n2. Select the reasoning effort (\"medium\" or \"high\") in stage_efforts for each stage that will run (goal, implementation, execution-flow, plus each stage selected in relevant_stages):\n- Use \"high\" for stages whose domain is central to the patch or where complex control flow, subtle error/teardown paths, concurrency, or non-trivial invariants must be verified.\n- Use \"medium\" for stages performing a routine check on a straightforward aspect of the patch.\n\nRespond with ONLY a JSON object. Example:\n```json\n{{\"relevant_stages\": [\"concurrency\", \"persistence\"], \"stage_efforts\": {{\"goal\": \"medium\", \"implementation\": \"high\", \"execution-flow\": \"high\", \"concurrency\": \"high\", \"persistence\": \"medium\"}}}}\n```"
+            ),
+            OutputFormat::json_with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "relevant_stages": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "stage_efforts": stage_efforts_schema
+                },
+                "required": ["relevant_stages", "stage_efforts"]
+            }))
+            .with_validator(validate_sashiko_planning_output_with_effort)
+            .with_feedback_formatter(format_planning_feedback),
+        )
+    } else {
+        (
+            format!(
+                "You are an AI assistant planning a Sashiko patch review.\nThe core stages (goal, implementation, execution-flow) always run.\nSelect which optional specialized stages should also run based on the patch contents.\nAvailable optional stages: [{optional_list}]\n\nCRITICAL BIAS RULE: Err on the side of inclusion. Include any stage whose domain could plausibly be affected by the patch.\n\nRespond with ONLY a JSON object listing the relevant optional stages. Example:\n```json\n{{\"relevant_stages\": [\"concurrency\", \"persistence\"]}}\n```"
+            ),
+            OutputFormat::json_with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "relevant_stages": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
+                },
+                "required": ["relevant_stages"]
+            })),
+        )
+    };
+
     Stage::builder("planning")
-        .system_prompt(PromptTemplate::<SashikoPatchReviewState>::new(format!(
-            "You are an AI assistant planning a Sashiko patch review.\nThe core stages (goal, implementation, execution-flow) always run.\nSelect which optional specialized stages should also run based on the patch contents.\nAvailable optional stages: [{optional_list}]\n\nCRITICAL BIAS RULE: Err on the side of inclusion. Include any stage whose domain could plausibly be affected by the patch.\n\nRespond with ONLY a JSON object listing the relevant optional stages. Example:\n```json\n{{\"relevant_stages\": [\"concurrency\", \"persistence\"]}}\n```"
-        )))
+        .system_prompt(PromptTemplate::<SashikoPatchReviewState>::new(sys_prompt))
         .user_prompt(
             PromptTemplate::<SashikoPatchReviewState>::new(
                 "<patch>\n{{target_commit_diff}}\n</patch>",
@@ -809,37 +868,23 @@ pub fn planning_stage() -> Stage<SashikoPatchReviewState, PlanningOutput> {
                 s.target_commit_diff.clone()
             }),
         )
-        .output_format(OutputFormat::json_with_schema(json!({
-            "type": "object",
-            "properties": {
-                "relevant_stages": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                }
-            },
-            "required": ["relevant_stages"]
-        })))
+        .output_format(output_format)
         .policy(StagePolicy {
             tools: ToolScope::None,
             max_turns: 1,
+            reasoning_effort: effort.map(crate::ai::EffortMode::lightweight_stage_effort),
             ..Default::default()
         })
         .skip_if(|s| s.manual_stages.is_some())
-        .reduce(|state, out: PlanningOutput| {
-            let mut planned: Vec<String> = ANALYSIS_STAGES
-                .iter()
-                .filter(|s| !s.optional)
-                .map(|s| s.name.to_string())
-                .collect();
-
-            for raw in out.relevant_stages {
-                if let Some(def) = analysis_stage_by_name(&raw)
-                    && !planned.iter().any(|p| p == def.name)
-                {
-                    planned.push(def.name.to_string());
-                }
-            }
-            state.planned_stages = planned;
+        .reduce(move |state, out: PlanningOutput| {
+            apply_planning_stage_output(
+                ANALYSIS_STAGES,
+                analysis_stage_by_name,
+                dynamic_effort,
+                out,
+                &mut state.planned_stages,
+                &mut state.planned_efforts,
+            );
         })
         .build()
 }
@@ -848,6 +893,7 @@ fn analysis_stage(
     def: &'static AnalysisStage,
     max_turns: usize,
     temperature: f32,
+    reasoning_effort: Option<crate::ai::ReasoningEffort>,
 ) -> Box<dyn ExecutableStage<SashikoPatchReviewState>> {
     let series_context = series_context_placeholder(def.wants_series_context);
     let mut user_template = PromptTemplate::<SashikoPatchReviewState>::new(format!(
@@ -874,6 +920,7 @@ fn analysis_stage(
                 tools: ToolScope::All,
                 max_turns,
                 temperature,
+                reasoning_effort,
                 ..Default::default()
             })
             .reduce_with_outcome(
@@ -917,7 +964,10 @@ pub fn resolve_analysis_stages_with_options(
     let mut stages = Vec::new();
     for name in selected_stages {
         match analysis_stage_by_name(&name) {
-            Some(def) => stages.push(analysis_stage(def, max_turns, temperature)),
+            Some(def) => {
+                let effort = resolve_stage_effort(state, def.name);
+                stages.push(analysis_stage(def, max_turns, temperature, effort));
+            }
             None => tracing::warn!("Ignoring unknown Sashiko review stage {:?}", name),
         }
     }
@@ -927,6 +977,14 @@ pub fn resolve_analysis_stages_with_options(
 pub fn verification_stage(
     max_turns: usize,
     temperature: f32,
+) -> Stage<SashikoPatchReviewState, VerificationOutput> {
+    verification_stage_with_effort(max_turns, temperature, None)
+}
+
+pub fn verification_stage_with_effort(
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
 ) -> Stage<SashikoPatchReviewState, VerificationOutput> {
     let series_context = series_context_placeholder(VERIFICATION.wants_series_context);
     let user_template = with_series_context(
@@ -984,6 +1042,7 @@ Return ONLY a JSON object with 'findings', 'hard_cases', and 'dismissed_concerns
             tools: ToolScope::All,
             max_turns,
             temperature,
+            reasoning_effort: effort.map(crate::ai::EffortMode::verification_stage_effort),
             ..Default::default()
         })
         .skip_if(|s| s.all_concerns.is_empty() && s.all_dismissed_concerns.is_empty())
@@ -998,6 +1057,16 @@ pub fn post_verification_stage(
     batch: Vec<Value>,
     max_turns: usize,
     temperature: f32,
+) -> Stage<SashikoPatchReviewState, PostVerificationOutput> {
+    post_verification_stage_with_effort(stage_name, batch, max_turns, temperature, None)
+}
+
+pub fn post_verification_stage_with_effort(
+    stage_name: &'static str,
+    batch: Vec<Value>,
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
 ) -> Stage<SashikoPatchReviewState, PostVerificationOutput> {
     let candidate_json = serde_json::to_string_pretty(&batch).unwrap_or_default();
     let batch_for_prompts = batch.clone();
@@ -1053,6 +1122,7 @@ Return ONLY a JSON object with 'findings' and 'dismissed_concerns' arrays. Every
             tools: ToolScope::All,
             max_turns,
             temperature,
+            reasoning_effort: effort.map(crate::ai::EffortMode::verification_stage_effort),
             ..Default::default()
         })
         .reduce_with_outcome(move |state, out: PostVerificationOutput, outcome| {
@@ -1074,11 +1144,12 @@ pub fn post_verification_stage_for_batch(
     max_turns: usize,
     temperature: f32,
 ) -> Box<dyn ExecutableStage<SashikoPatchReviewState>> {
-    Box::new(post_verification_stage(
+    Box::new(post_verification_stage_with_effort(
         stage_name,
         batch,
         max_turns,
         temperature,
+        None,
     ))
 }
 
@@ -1087,18 +1158,33 @@ pub fn resolve_post_verification_stages_with_options(
     max_turns: usize,
     temperature: f32,
 ) -> Vec<Box<dyn ExecutableStage<SashikoPatchReviewState>>> {
+    let effort = state.effort;
     let batches = batch_hard_cases_by_severity(&state.hard_cases);
     batches
         .into_iter()
         .enumerate()
         .map(|(idx, batch)| {
             let stage_name = POST_VERIFICATION_STAGE_NAMES[idx];
-            post_verification_stage_for_batch(stage_name, batch, max_turns, temperature)
+            Box::new(post_verification_stage_with_effort(
+                stage_name,
+                batch,
+                max_turns,
+                temperature,
+                effort,
+            )) as Box<dyn ExecutableStage<SashikoPatchReviewState>>
         })
         .collect()
 }
 
 pub fn report_stage(max_turns: usize, temperature: f32) -> Stage<SashikoPatchReviewState, String> {
+    report_stage_with_effort(max_turns, temperature, None)
+}
+
+pub fn report_stage_with_effort(
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
+) -> Stage<SashikoPatchReviewState, String> {
     Stage::builder(REPORT.name)
         .system_prompt(sashiko_system_prompt(true))
         .user_prompt(
@@ -1127,6 +1213,7 @@ Return strictly plain text output (no markdown, no backticks, wrapped at 78 char
             tools: ToolScope::All,
             max_turns,
             temperature,
+            reasoning_effort: effort.map(crate::ai::EffortMode::lightweight_stage_effort),
             recitation_policy: RecitationPolicy::FallbackToFreeForm {
                 reminder: "Do not quote large blocks of code verbatim. Summarize concisely."
                     .to_string(),
@@ -1140,9 +1227,14 @@ Return strictly plain text output (no markdown, no backticks, wrapped at 78 char
         .build()
 }
 
-pub fn summary_stage(
+pub fn summary_stage(max_turns: usize, temperature: f32) -> Stage<SashikoPatchReviewState, String> {
+    summary_stage_with_effort(max_turns, temperature, None)
+}
+
+pub fn summary_stage_with_effort(
     _max_turns: usize,
     temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
 ) -> Stage<SashikoPatchReviewState, String> {
     Stage::builder(SUMMARY.name)
         .system_prompt(sashiko_system_prompt(true))
@@ -1157,6 +1249,7 @@ pub fn summary_stage(
             tools: ToolScope::None,
             max_turns: 1,
             temperature,
+            reasoning_effort: effort.map(crate::ai::EffortMode::lightweight_stage_effort),
             recitation_policy: RecitationPolicy::FallbackToFreeForm {
                 reminder:
                     "Summarize the change concisely in plain text (including Before: and After: examples if user-visible) without quoting large blocks verbatim."
@@ -1193,22 +1286,30 @@ pub fn build_sashiko_patch_review_workflow_with_options(
     max_turns: usize,
     temperature: f32,
 ) -> Workflow<SashikoPatchReviewState> {
+    build_sashiko_patch_review_workflow_with_effort(max_turns, temperature, None)
+}
+
+pub fn build_sashiko_patch_review_workflow_with_effort(
+    max_turns: usize,
+    temperature: f32,
+    effort: Option<crate::ai::EffortMode>,
+) -> Workflow<SashikoPatchReviewState> {
     Workflow::builder("sashiko_patch_review")
-        .stage(prescreen_stage())
+        .stage(prescreen_stage_with_effort(effort))
         .dynamic_parallel(
-            planning_stage(),
+            planning_stage_with_effort(effort),
             move |state| resolve_analysis_stages_with_options(state, max_turns, temperature),
             ParallelPolicy::BestEffort,
         )
         .dynamic_parallel(
-            verification_stage(max_turns, temperature),
+            verification_stage_with_effort(max_turns, temperature, effort),
             move |state| {
                 resolve_post_verification_stages_with_options(state, max_turns, temperature)
             },
             ParallelPolicy::BestEffort,
         )
-        .stage(report_stage(max_turns, temperature))
-        .stage(summary_stage(max_turns, temperature))
+        .stage(report_stage_with_effort(max_turns, temperature, effort))
+        .stage(summary_stage_with_effort(max_turns, temperature, effort))
         .build()
 }
 
