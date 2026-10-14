@@ -51,9 +51,26 @@ impl LlmTool<SashikoToolContext> for ReadPromptTool {
             .as_str()
             .ok_or_else(|| anyhow!("Missing prompt name"))?;
 
-        let path = validate_path(name, prompts_path)?;
+        let path = resolve_prompt_path(name, prompts_path)?;
         let content = fs::read_to_string(path).await?;
 
         Ok(json!({ "content": content }))
     }
+}
+
+fn resolve_prompt_path(name: &str, prompts_path: &std::path::Path) -> Result<std::path::PathBuf> {
+    let normalized = crate::workflows::guard::normalize_prompt_relpath(name);
+    let primary = validate_path(normalized, prompts_path)?;
+    if primary.is_file() || normalized.contains('/') {
+        return Ok(primary);
+    }
+    for subdir in ["subsystem", "patterns"] {
+        let candidate_rel = format!("{subdir}/{normalized}");
+        if let Ok(candidate) = validate_path(&candidate_rel, prompts_path)
+            && candidate.is_file()
+        {
+            return Ok(candidate);
+        }
+    }
+    Ok(primary)
 }

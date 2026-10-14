@@ -25,7 +25,7 @@ use crate::workflow::{
     ExecutableStage, OutputFormat, ParallelPolicy, PromptTemplate, RecitationPolicy, Stage,
     StagePolicy, ToolScope, Workflow,
 };
-use crate::workflows::guard::{normalize_stage_name, sanitize_guide_name};
+use crate::workflows::guard::{normalize_guide_name, normalize_stage_name, sanitize_guide_name};
 use crate::workflows::linux_patch_review::{
     AnalysisStage, ConsolidationStage, LinuxPatchReviewState, POST_VERIFICATION_STAGE_NAMES,
     PlanningOutput, PostVerificationOutput, PrescreenOutput, SERIES_CONTEXT_PLACEHOLDER,
@@ -118,8 +118,9 @@ Target Commit:
         let mut paths = Vec::new();
         if !s.selected_guides.is_empty() {
             for guide in &s.selected_guides {
-                paths.push(PathBuf::from("subsystem").join(guide));
-                paths.push(PathBuf::from("patterns").join(guide));
+                let name = normalize_guide_name(guide);
+                paths.push(PathBuf::from("subsystem").join(name));
+                paths.push(PathBuf::from("patterns").join(name));
             }
         }
         paths
@@ -790,6 +791,7 @@ pub fn prescreen_stage_with_effort(
             let prompts: Vec<String> = out
                 .selected_prompts
                 .into_iter()
+                .map(|name| normalize_guide_name(&name).to_string())
                 .filter(|name| !is_stage_exclusive_guide(name))
                 .filter(|name| sanitize_guide_name(name))
                 .collect();

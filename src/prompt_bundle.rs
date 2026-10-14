@@ -227,6 +227,14 @@ mod tests {
                         referenced_guides.push(file_col);
                     }
                 }
+            } else if trimmed.starts_with('-')
+                && let Some(start) = trimmed.find('(')
+                && let Some(end) = trimmed[start + 1..].find(')')
+            {
+                let candidate = trimmed[start + 1..start + 1 + end].trim();
+                if candidate.ends_with(".md") && !candidate.contains(' ') {
+                    referenced_guides.push(candidate);
+                }
             }
         }
 

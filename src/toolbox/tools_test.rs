@@ -481,6 +481,13 @@ mod tests {
             .expect("a name under the prompt directory must resolve");
         assert!(!result["content"].as_str().unwrap_or_default().is_empty());
 
+        for alt in ["review-prompts/kernel/subsystem/locking.md", "locking.md"] {
+            let alt_res = rt
+                .block_on(toolbox.call("read_prompt", json!({ "name": alt })))
+                .unwrap_or_else(|e| panic!("expected {alt} to resolve: {e}"));
+            assert_eq!(alt_res["content"], result["content"]);
+        }
+
         // A file as the base cannot resolve anything.
         let wrong = ToolBox::new(linux_path, Some(prompts_path.join("tool.md")));
         assert!(rt.block_on(wrong.call("read_prompt", args)).is_err());

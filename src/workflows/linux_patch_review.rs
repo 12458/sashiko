@@ -196,8 +196,9 @@ Target Commit:
         let mut paths = Vec::new();
         if !s.selected_guides.is_empty() {
             for guide in &s.selected_guides {
-                paths.push(PathBuf::from("subsystem").join(guide));
-                paths.push(PathBuf::from("patterns").join(guide));
+                let name = crate::workflows::guard::normalize_guide_name(guide);
+                paths.push(PathBuf::from("subsystem").join(name));
+                paths.push(PathBuf::from("patterns").join(name));
             }
         }
         paths
@@ -861,7 +862,7 @@ pub fn push_unique_string(list: &mut Vec<String>, candidate: &str) {
 }
 
 pub fn push_unique_prompt(prompts: &mut Vec<String>, candidate: &str) {
-    let trimmed = candidate.trim();
+    let trimmed = crate::workflows::guard::normalize_prompt_relpath(candidate);
     if crate::workflows::guard::sanitize_prompt_relpath(trimmed)
         && !prompts.iter().any(|existing| existing == trimmed)
     {
@@ -1476,6 +1477,7 @@ pub fn prescreen_stage_with_effort(
             let prompts: Vec<String> = out
                 .selected_prompts
                 .into_iter()
+                .map(|name| crate::workflows::guard::normalize_guide_name(&name).to_string())
                 .filter(|name| !is_stage_exclusive_guide(name))
                 .filter(|name| crate::workflows::guard::sanitize_guide_name(name))
                 .collect();

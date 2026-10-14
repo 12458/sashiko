@@ -106,7 +106,7 @@ impl StageOutcome {
                         .eq_ignore_ascii_case("read_prompt")
                     && let Some(name) = call.arguments.get("name").and_then(Value::as_str)
                 {
-                    let trimmed = name.trim();
+                    let trimmed = crate::workflows::guard::normalize_prompt_relpath(name);
                     if !trimmed.is_empty() && !prompts.iter().any(|p| p == trimmed) {
                         prompts.push(trimmed.to_string());
                     }
