@@ -472,8 +472,9 @@
             font-weight: bold;
         }
 
-        /* Bugs Button Highlight & Popup Hint */
-        #btn-bugs {
+        /* Bugs Button & Bug Copy Link Highlight & Popup Hint */
+        #btn-bugs,
+        #btn-copy-bug-link {
             position: relative;
             background: var(--bugs-btn-bg);
             color: var(--bugs-btn-text);
@@ -485,7 +486,9 @@
 
         #btn-bugs:hover,
         #btn-bugs:focus-visible,
-        #btn-bugs.active {
+        #btn-bugs.active,
+        #btn-copy-bug-link:hover,
+        #btn-copy-bug-link:focus-visible {
             background: var(--bugs-btn-bg-hover);
             border-color: var(--bugs-btn-border-hover);
             box-shadow: 0 0 0 2px var(--bugs-btn-glow-hover), 0 2px 6px var(--bugs-btn-glow);
@@ -495,7 +498,8 @@
             font-weight: 700;
         }
 
-        #btn-bugs[data-hint]::after {
+        #btn-bugs[data-hint]::after,
+        #btn-copy-bug-link[data-hint]::after {
             content: attr(data-hint);
             position: absolute;
             top: calc(100% + 8px);
@@ -521,7 +525,8 @@
             pointer-events: none;
         }
 
-        #btn-bugs[data-hint]::before {
+        #btn-bugs[data-hint]::before,
+        #btn-copy-bug-link[data-hint]::before {
             content: "";
             position: absolute;
             top: calc(100% + 3px);
@@ -540,16 +545,54 @@
         }
 
         #btn-bugs[data-hint]:hover::after,
-        #btn-bugs[data-hint]:focus-visible::after {
+        #btn-bugs[data-hint]:focus-visible::after,
+        #btn-copy-bug-link[data-hint]:hover::after,
+        #btn-copy-bug-link[data-hint]:focus-visible::after {
             opacity: 1;
             visibility: visible;
             transform: translateY(0);
         }
 
         #btn-bugs[data-hint]:hover::before,
-        #btn-bugs[data-hint]:focus-visible::before {
+        #btn-bugs[data-hint]:focus-visible::before,
+        #btn-copy-bug-link[data-hint]:hover::before,
+        #btn-copy-bug-link[data-hint]:focus-visible::before {
             opacity: 1;
             visibility: visible;
+        }
+
+        /* The nav button sits at the right edge of the header, so its hint
+           grows leftward (right: 0 above). The bug Copy Link button sits at
+           the left of the "Bug ID:" value cell, so its hint grows rightward
+           into the open column instead of covering the ID and Copy button. */
+        #btn-copy-bug-link[data-hint]::after {
+            right: auto;
+            left: 0;
+        }
+
+        #btn-copy-bug-link[data-hint]::before {
+            right: auto;
+            left: 16px;
+        }
+
+        /* On narrow viewports the Copy Link button can land anywhere on a
+           wrapped row, so neither edge anchor is safe; pin the hint to the
+           bottom of the viewport instead and drop the arrow. */
+        @media (max-width: 768px) {
+            #btn-copy-bug-link[data-hint]::after {
+                position: fixed;
+                top: auto;
+                bottom: 12px;
+                left: 12px;
+                right: 12px;
+                width: auto;
+                max-width: none;
+                transform: none;
+            }
+
+            #btn-copy-bug-link[data-hint]::before {
+                display: none;
+            }
         }
 
         /* Subsystem Multi-select Dropdown */
@@ -5040,7 +5083,7 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
                 </div>` : ''}
 
                 <div class="section">
-                    <div class="kv"><div class="label">Bug ID:</div><div><code>${escapeHtml(bugid)}</code> <button class="copy-btn" data-copy="${escapeHtml(bugid)}" title="Copy bug ID">Copy</button><button class="copy-btn" data-copy="${escapeHtml(bugUrl)}" title="Copy shareable read-only link to this bug">Copy Link</button></div></div>
+                    <div class="kv"><div class="label">Bug ID:</div><div><code>${escapeHtml(bugid)}</code> <button class="copy-btn" data-copy="${escapeHtml(bugid)}" title="Copy bug ID">Copy</button><button id="btn-copy-bug-link" class="copy-btn" data-copy="${escapeHtml(bugUrl)}" data-hint="Public link to this bug report — safe to share and use for Fixes: tags" aria-label="Copy Link — Public link to this bug report, safe to share and use for Fixes: tags">Copy Link</button></div></div>
                     <div class="kv"><div class="label">Severity:</div><div><span class="tag" style="border:1px solid ${sevColor}; color:${sevColor}; font-weight:bold; background:transparent;">${escapeHtml(severity)}</span></div></div>
                     <div class="kv"><div class="label">Status:</div><div><span class="status-badge ${status.cls}">${status.label}</span></div></div>
                     <div class="kv"><div class="label">Assignee:</div><div>${data.assignee ? `${escapeHtml(data.assignee)}${data.assigned_at ? ` <span class="text-muted-sm">since ${formatDate(data.assigned_at, true)}</span>` : ''}` : '<span class="text-muted-sm">Unassigned</span>'}</div></div>
