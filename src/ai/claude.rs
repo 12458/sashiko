@@ -795,77 +795,59 @@ mod tests {
     }
 
     #[test]
-    fn test_rate_limit_exceeded_classifies_as_rate_limit() {
-        let retry_after = Duration::from_secs(7);
-        let err = ClaudeError::RateLimitExceeded(retry_after);
+    fn test_claude_error_classification() {
+        let cases = [
+            (
+                ClaudeError::RateLimitExceeded(Duration::from_secs(7)),
+                AiErrorClass::RateLimit {
+                    retry_after: Duration::from_secs(7),
+                },
+            ),
+            (
+                ClaudeError::OverloadedError(Duration::from_secs(11)),
+                AiErrorClass::Transient {
+                    retry_after: Duration::from_secs(11),
+                },
+            ),
+            (
+                ClaudeError::InvalidRequest("bad request".to_string()),
+                AiErrorClass::Fatal,
+            ),
+            (
+                ClaudeError::AuthenticationError("bad key".to_string()),
+                AiErrorClass::Fatal,
+            ),
+            (
+                ClaudeError::ApiError(
+                    reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                    "unavailable".to_string(),
+                ),
+                AiErrorClass::Transient {
+                    retry_after: DEFAULT_RETRY_AFTER,
+                },
+            ),
+            (
+                ClaudeError::ApiError(reqwest::StatusCode::BAD_REQUEST, "bad request".to_string()),
+                AiErrorClass::Fatal,
+            ),
+            (
+                ClaudeError::TransientError(
+                    Duration::from_secs(30),
+                    "connection reset".to_string(),
+                ),
+                AiErrorClass::Transient {
+                    retry_after: Duration::from_secs(30),
+                },
+            ),
+        ];
 
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::RateLimit { retry_after }
-        );
-    }
-
-    #[test]
-    fn test_overloaded_error_classifies_as_transient() {
-        let retry_after = Duration::from_secs(11);
-        let err = ClaudeError::OverloadedError(retry_after);
-
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::Transient { retry_after }
-        );
-    }
-
-    #[test]
-    fn test_invalid_request_classifies_as_fatal() {
-        let err = ClaudeError::InvalidRequest("bad request".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_authentication_error_classifies_as_fatal() {
-        let err = ClaudeError::AuthenticationError("bad key".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_api_error_server_status_classifies_as_transient() {
-        let err = ClaudeError::ApiError(
-            reqwest::StatusCode::SERVICE_UNAVAILABLE,
-            "unavailable".to_string(),
-        );
-
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::Transient {
-                retry_after: DEFAULT_RETRY_AFTER,
-            }
-        );
-    }
-
-    #[test]
-    fn test_api_error_client_status_classifies_as_fatal() {
-        let err =
-            ClaudeError::ApiError(reqwest::StatusCode::BAD_REQUEST, "bad request".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_transient_error_classifies_as_transient() {
-        let retry_after = Duration::from_secs(30);
-        let err = ClaudeError::TransientError(retry_after, "connection reset".to_string());
-
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::Transient { retry_after }
-        );
-        assert_eq!(
-            crate::ai::classify_ai_error(&anyhow::Error::from(err)),
-            AiErrorClass::Transient { retry_after }
-        );
+        for (err, expected) in cases {
+            assert_eq!(err.ai_error_class(), expected);
+            assert_eq!(
+                crate::ai::classify_ai_error(&anyhow::Error::from(err)),
+                expected
+            );
+        }
     }
 
     fn local_client(base_url: &str) -> ClaudeClient {
@@ -1063,7 +1045,7 @@ mod tests {
     // --- ThinkingConfig tests (Bug 1 regression) ---
 
     #[test]
-    fn test_thinking_config_omitted_when_both_none() {
+    fn test_thinking_and_output_config_translation() {
         let req = make_request(vec![AiMessage {
             role: AiRole::User,
             content: Some("hi".to_string()),
@@ -1076,39 +1058,14 @@ mod tests {
         let claude_req = translate_ai_request(&req, false, 4096, None, None).unwrap();
         assert!(claude_req.thinking.is_none());
         assert!(claude_req.output_config.is_none());
-
         let json = serde_json::to_value(&claude_req).unwrap();
         assert!(!json.as_object().unwrap().contains_key("thinking"));
         assert!(!json.as_object().unwrap().contains_key("output_config"));
-    }
-
-    #[test]
-    fn test_thinking_config_present_when_thinking_set() {
-        let req = make_request(vec![AiMessage {
-            role: AiRole::User,
-            content: Some("hi".to_string()),
-            thought: None,
-            thought_signature: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }]);
 
         let claude_req =
             translate_ai_request(&req, false, 4096, Some("adaptive".to_string()), None).unwrap();
         assert_eq!(claude_req.thinking.unwrap().thinking_type, "adaptive");
         assert!(claude_req.output_config.is_none());
-    }
-
-    #[test]
-    fn test_effort_alone_sends_output_config_only() {
-        let req = make_request(vec![AiMessage {
-            role: AiRole::User,
-            content: Some("hi".to_string()),
-            thought: None,
-            thought_signature: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }]);
 
         // Effort alone must not emit a thinking object, which would lack
         // the "type" the API requires.
@@ -1116,18 +1073,6 @@ mod tests {
             translate_ai_request(&req, false, 4096, None, Some("high".to_string())).unwrap();
         assert!(claude_req.thinking.is_none());
         assert_eq!(claude_req.output_config.unwrap().effort, "high");
-    }
-
-    #[test]
-    fn test_thinking_config_serialization_populated() {
-        let req = make_request(vec![AiMessage {
-            role: AiRole::User,
-            content: Some("hi".to_string()),
-            thought: None,
-            thought_signature: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }]);
 
         let claude_req = translate_ai_request(
             &req,
@@ -1415,7 +1360,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_control_applied() -> Result<()> {
+    fn test_cache_control_toggle() -> Result<()> {
         let mut req = make_request(vec![AiMessage {
             role: AiRole::User,
             content: Some("Hello!".to_string()),
@@ -1426,45 +1371,17 @@ mod tests {
         }]);
         req.system = Some("System prompt.".to_string());
 
-        let claude_req = translate_ai_request(&req, true, 4096, None, None)?;
+        for enable_caching in [true, false] {
+            let claude_req = translate_ai_request(&req, enable_caching, 4096, None, None)?;
+            let sys = claude_req.system.unwrap();
+            assert_eq!(sys.last().unwrap().cache_control.is_some(), enable_caching);
 
-        // Last system block should have cache_control
-        let sys = claude_req.system.unwrap();
-        assert!(sys.last().unwrap().cache_control.is_some());
-
-        // Last message content should have cache_control
-        let last_msg = claude_req.messages.last().unwrap();
-        if let ClaudeContent::Text { cache_control, .. } = last_msg.content.last().unwrap() {
-            assert!(cache_control.is_some());
-        } else {
-            panic!("Expected Text content with cache_control");
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_cache_control_not_applied_when_disabled() -> Result<()> {
-        let mut req = make_request(vec![AiMessage {
-            role: AiRole::User,
-            content: Some("Hello!".to_string()),
-            thought: None,
-            thought_signature: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }]);
-        req.system = Some("System prompt.".to_string());
-
-        let claude_req = translate_ai_request(&req, false, 4096, None, None)?;
-
-        let sys = claude_req.system.unwrap();
-        assert!(sys.last().unwrap().cache_control.is_none());
-
-        let last_msg = claude_req.messages.last().unwrap();
-        if let ClaudeContent::Text { cache_control, .. } = last_msg.content.last().unwrap() {
-            assert!(cache_control.is_none());
-        } else {
-            panic!("Expected Text content");
+            let last_msg = claude_req.messages.last().unwrap();
+            if let ClaudeContent::Text { cache_control, .. } = last_msg.content.last().unwrap() {
+                assert_eq!(cache_control.is_some(), enable_caching);
+            } else {
+                panic!("Expected Text content");
+            }
         }
 
         Ok(())

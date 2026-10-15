@@ -1471,17 +1471,14 @@ mod tests {
     }
 
     #[test]
-    fn test_nntp_tls_defaults_to_off() {
-        let nntp: NntpSettings =
+    fn test_nntp_tls_configuration() {
+        let default_nntp: NntpSettings =
             toml::from_str("server = \"nntp.lore.kernel.org\"\nport = 119\n").unwrap();
-        assert!(!nntp.tls);
-    }
+        assert!(!default_nntp.tls);
 
-    #[test]
-    fn test_nntp_tls_is_configurable() {
-        let nntp: NntpSettings =
+        let tls_nntp: NntpSettings =
             toml::from_str("server = \"news.internal.example\"\nport = 563\ntls = true\n").unwrap();
-        assert!(nntp.tls);
+        assert!(tls_nntp.tls);
     }
 
     #[test]
@@ -1507,117 +1504,75 @@ mod tests {
     }
 
     #[test]
-    fn test_acl_default_fails_closed() {
-        let acl = AclSettings::default();
+    fn test_acl_capabilities_and_blocklist() {
+        let default_acl = AclSettings::default();
         let email = "user@example.com";
-        assert!(!acl.is_blocklisted(email));
-        assert!(!acl.has_permission(email, Permission::Ingest));
-        assert!(!acl.has_permission(email, Permission::Cancel));
-        assert!(!acl.has_permission(email, Permission::Review));
-    }
+        assert!(!default_acl.is_blocklisted(email));
+        assert!(!default_acl.is_bug_reporter(email));
+        for perm in [Permission::Ingest, Permission::Cancel, Permission::Review] {
+            assert!(!default_acl.has_permission(email, perm));
+        }
 
-    #[test]
-    fn test_acl_admin_grants_all_permissions() {
         let acl = AclSettings {
-            admins: vec!["admin@example.com".to_string()],
-            ..Default::default()
+            admins: vec![
+                "admin@example.com".to_string(),
+                "Rogue_Admin@Example.COM".to_string(),
+            ],
+            security: vec![" gregkh@linuxfoundation.org ".to_string()],
+            bug_reporters: vec!["tool@example.com".to_string()],
+            ingest: vec![
+                "bot@example.com".to_string(),
+                "Rogue_Admin@Example.COM".to_string(),
+            ],
+            cancel: vec![
+                "cron@example.com".to_string(),
+                "Rogue_Admin@Example.COM".to_string(),
+            ],
+            review: vec![
+                "reviewer@example.com".to_string(),
+                "Rogue_Admin@Example.COM".to_string(),
+            ],
+            blocklist: vec!["  Rogue_Admin@Example.COM ".to_string()],
         };
-        assert!(acl.has_permission("admin@example.com", Permission::Ingest));
-        assert!(acl.has_permission("admin@example.com", Permission::Cancel));
-        assert!(acl.has_permission("admin@example.com", Permission::Review));
-    }
 
-    #[test]
-    fn test_acl_granular_capabilities() {
-        let acl = AclSettings {
-            ingest: vec!["bot@example.com".to_string()],
-            cancel: vec!["cron@example.com".to_string()],
-            review: vec!["reviewer@example.com".to_string()],
-            ..Default::default()
-        };
+        // Admin grants all capabilities.
+        for perm in [Permission::Ingest, Permission::Cancel, Permission::Review] {
+            assert!(acl.has_permission("admin@example.com", perm));
+        }
 
+        // Granular capabilities grant only their respective permission.
         assert!(acl.has_permission("bot@example.com", Permission::Ingest));
         assert!(!acl.has_permission("bot@example.com", Permission::Cancel));
         assert!(!acl.has_permission("bot@example.com", Permission::Review));
-
         assert!(acl.has_permission("reviewer@example.com", Permission::Review));
         assert!(!acl.has_permission("reviewer@example.com", Permission::Ingest));
-    }
 
-    #[test]
-    fn test_acl_blocklist_preempts_all_capabilities_and_admin() {
-        let acl = AclSettings {
-            admins: vec!["rogue_admin@example.com".to_string()],
-            ingest: vec!["rogue_admin@example.com".to_string()],
-            cancel: vec!["rogue_admin@example.com".to_string()],
-            review: vec!["rogue_admin@example.com".to_string()],
-            blocklist: vec!["rogue_admin@example.com".to_string()],
-            ..Default::default()
-        };
+        // Blocklist preempts all capabilities and admin, case-insensitively and with whitespace.
+        for variant in [
+            "rogue_admin@example.com",
+            "ROGUE_ADMIN@EXAMPLE.COM",
+            " rOgUe_AdMiN@eXaMpLe.CoM ",
+        ] {
+            assert!(acl.is_blocklisted(variant));
+            for perm in [Permission::Ingest, Permission::Cancel, Permission::Review] {
+                assert!(!acl.has_permission(variant, perm));
+            }
+        }
 
-        assert!(acl.is_blocklisted("rogue_admin@example.com"));
-        assert!(!acl.has_permission("rogue_admin@example.com", Permission::Ingest));
-        assert!(!acl.has_permission("rogue_admin@example.com", Permission::Cancel));
-        assert!(!acl.has_permission("rogue_admin@example.com", Permission::Review));
-    }
-
-    #[test]
-    fn test_acl_blocklist_case_insensitivity() {
-        let acl = AclSettings {
-            admins: vec!["User@Example.COM".to_string()],
-            blocklist: vec!["User@Example.COM".to_string()],
-            ..Default::default()
-        };
-
-        assert!(acl.is_blocklisted("user@example.com"));
-        assert!(acl.is_blocklisted("USER@EXAMPLE.COM"));
-        assert!(acl.is_blocklisted("uSeR@eXaMpLe.CoM"));
-        assert!(!acl.has_permission("user@example.com", Permission::Review));
-        assert!(!acl.has_permission("USER@EXAMPLE.COM", Permission::Review));
-    }
-
-    #[test]
-    fn test_acl_deserialization_with_blocklist() {
-        let toml_blocklist = r#"
-            admins = ["alice@example.com"]
-            blocklist = ["mallory@example.com"]
-        "#;
-        let acl: AclSettings = toml::from_str(toml_blocklist).expect("deserialization failed");
-        assert_eq!(acl.blocklist, vec!["mallory@example.com"]);
-        assert!(acl.is_blocklisted("mallory@example.com"));
-    }
-
-    #[test]
-    fn test_security_list_grants_no_capabilities() {
-        let acl = AclSettings {
-            security: vec!["gregkh@linuxfoundation.org".to_string()],
-            ..Default::default()
-        };
+        // Security list and bug_reporters do not leak into operational permissions.
         assert!(acl.is_security("gregkh@linuxfoundation.org"));
-        // Membership is about bugs. It must not leak into the capabilities
-        // that spend money or move patches around.
+        assert!(!acl.is_admin("gregkh@linuxfoundation.org"));
+        assert!(!acl.is_bug_reporter("gregkh@linuxfoundation.org"));
         for perm in [Permission::Ingest, Permission::Cancel, Permission::Review] {
             assert!(!acl.has_permission("gregkh@linuxfoundation.org", perm));
         }
-        assert!(!acl.is_admin("gregkh@linuxfoundation.org"));
-        assert!(!acl.is_bug_reporter("gregkh@linuxfoundation.org"));
-    }
 
-    #[test]
-    fn test_bug_reporters_defaults_to_nobody() {
-        let acl = AclSettings::default();
-        assert!(!acl.is_bug_reporter("tool@example.com"));
-
-        let acl = AclSettings {
-            bug_reporters: vec!["tool@example.com".to_string()],
-            ..Default::default()
-        };
         assert!(acl.is_bug_reporter("tool@example.com"));
         assert!(!acl.is_security("tool@example.com"));
     }
 
     #[test]
-    fn test_every_configured_list_may_sign_in() {
+    fn test_acl_identities_and_deserialization() {
         let acl = AclSettings {
             admins: vec!["operator@example.org".to_string()],
             security: vec!["gregkh@linuxfoundation.org".to_string()],
@@ -1628,8 +1583,6 @@ mod tests {
             blocklist: vec!["mallory@example.org".to_string()],
         };
 
-        // An address that can do something has to be able to sign in and do
-        // it, whichever list put it there.
         for known in [
             "operator@example.org",
             "GregKH@LinuxFoundation.org",
@@ -1644,30 +1597,20 @@ mod tests {
         assert!(!acl.is_known_identity("mallory@example.org"));
         assert!(!acl.is_known_identity("stranger@example.org"));
         assert!(!AclSettings::default().is_known_identity("anyone@example.org"));
-    }
 
-    #[test]
-    fn test_list_matching_tolerates_surrounding_whitespace() {
-        let acl = AclSettings {
-            security: vec![" gregkh@linuxfoundation.org ".to_string()],
-            blocklist: vec!["  mallory@example.com".to_string()],
-            ..Default::default()
-        };
-        assert!(acl.is_security("gregkh@linuxfoundation.org"));
-        // A space in the configuration file must not let a denied address
-        // through.
-        assert!(acl.is_blocklisted("mallory@example.com"));
-        assert!(acl.is_blocklisted(" mallory@example.com "));
-    }
+        let toml_blocklist = r#"
+            admins = ["alice@example.com"]
+            blocklist = ["mallory@example.com"]
+        "#;
+        let parsed: AclSettings = toml::from_str(toml_blocklist).expect("deserialization failed");
+        assert_eq!(parsed.blocklist, vec!["mallory@example.com"]);
+        assert!(parsed.is_blocklisted("mallory@example.com"));
 
-    #[test]
-    fn test_acl_rejects_unknown_keys() {
-        // The lists are the whole security model, so a typo has to be loud.
-        let toml = r#"
+        let typo_toml = r#"
             admins = ["alice@example.com"]
             securty = ["typo@example.com"]
         "#;
-        assert!(toml::from_str::<AclSettings>(toml).is_err());
+        assert!(toml::from_str::<AclSettings>(typo_toml).is_err());
     }
 
     #[test]

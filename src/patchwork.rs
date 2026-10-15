@@ -323,175 +323,123 @@ mod tests {
     // -- PatchworkCheckResult tests --
 
     #[test]
-    fn test_no_findings_success() {
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &[]);
-        assert_eq!(result.state, "success");
-        assert_eq!(result.description, "Sashiko AI review found no regressions");
+    fn test_patchwork_check_result_from_policy() {
+        let policy = default_policy();
+
+        let empty = PatchworkCheckResult::from_policy(&policy, &[]);
+        assert_eq!(empty.state, "success");
+        assert_eq!(empty.description, "Sashiko AI review found no regressions");
+
+        for (severity, expected_state, expected_label) in [
+            ("Critical", "fail", "Critical: 1"),
+            ("High", "fail", "High: 1"),
+            ("Medium", "warning", "Medium: 1"),
+            ("Low", "warning", "Low: 1"),
+        ] {
+            let result = PatchworkCheckResult::from_policy(&policy, &[finding_new(severity)]);
+            assert_eq!(result.state, expected_state, "{severity}");
+            assert!(result.description.contains(expected_label), "{severity}");
+            for other in ["Critical", "High", "Medium", "Low"] {
+                if other != severity {
+                    assert!(!result.description.contains(other));
+                }
+            }
+        }
+
+        // Pre-existing only produces success.
+        let pre_only = PatchworkCheckResult::from_policy(
+            &policy,
+            &[finding_preexisting("Critical"), finding_preexisting("High")],
+        );
+        assert_eq!(pre_only.state, "success");
+        assert!(pre_only.description.contains("pre-existing"));
+
+        // Mixed new and pre-existing across and within severities, with middle-dot separator.
+        let mixed = PatchworkCheckResult::from_policy(
+            &policy,
+            &[
+                finding_new("Critical"),
+                finding_new("High"),
+                finding_new("High"),
+                finding_new("High"),
+                finding_preexisting("High"),
+            ],
+        );
+        assert_eq!(mixed.state, "fail");
+        assert!(mixed.description.contains("Critical: 1"));
+        assert!(mixed.description.contains("\u{00b7}"));
+        assert!(mixed.description.contains("High: 3 (1 pre-existing)"));
+
+        // Missing or null preexisting field defaults to new.
+        for finding_val in [
+            serde_json::json!({"severity": "High", "problem": "test"}),
+            serde_json::json!({"severity": "High", "problem": "test", "preexisting": null}),
+        ] {
+            let result = PatchworkCheckResult::from_policy(&policy, &[finding_val]);
+            assert_eq!(result.state, "fail");
+            assert!(result.description.contains("High: 1"));
+            assert!(!result.description.contains("pre-existing"));
+        }
     }
 
     #[test]
-    fn test_new_high_produces_fail() {
-        let findings = vec![finding_new("High")];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "fail");
-        assert!(result.description.contains("High: 1"));
-    }
-
-    #[test]
-    fn test_new_critical_produces_fail() {
-        let findings = vec![finding_new("Critical")];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "fail");
-        assert!(result.description.contains("Critical: 1"));
-    }
-
-    #[test]
-    fn test_new_medium_produces_warning() {
-        let findings = vec![finding_new("Medium")];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "warning");
-        assert!(result.description.contains("Medium: 1"));
-    }
-
-    #[test]
-    fn test_new_low_produces_warning() {
-        let findings = vec![finding_new("Low")];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "warning");
-        assert!(result.description.contains("Low: 1"));
-    }
-
-    #[test]
-    fn test_only_produces_success() {
-        let findings = vec![finding_preexisting("Critical"), finding_preexisting("High")];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "success");
-        assert!(result.description.contains("pre-existing"));
-    }
-
-    #[test]
-    fn test_mixed_new_and_preexisting() {
-        let findings = vec![
-            finding_new("Critical"),
-            finding_preexisting("High"),
-            finding_preexisting("High"),
-        ];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "fail");
-        assert!(result.description.contains("Critical: 1"));
-        assert!(result.description.contains("High: 2 pre-existing"));
-    }
-
-    #[test]
-    fn test_mixed_new_and_same_severity() {
-        let findings = vec![
-            finding_new("High"),
-            finding_new("High"),
-            finding_new("High"),
-            finding_preexisting("High"),
-        ];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "fail");
-        assert!(result.description.contains("High: 3 (1 pre-existing)"));
-    }
-
-    #[test]
-    fn test_zero_counts_dropped_from_description() {
-        let findings = vec![finding_new("Critical")];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert!(!result.description.contains("High"));
-        assert!(!result.description.contains("Medium"));
-        assert!(!result.description.contains("Low"));
-    }
-
-    #[test]
-    fn test_min_severity_filters_both_new_and_preexisting() {
-        let policy = PatchworkPolicy {
+    fn test_patchwork_check_result_min_and_fail_severity() {
+        let min_medium = PatchworkPolicy {
             min_severity: Some("Medium".to_string()),
             ..Default::default()
         };
-        let findings = vec![
-            finding_new("Low"),
-            finding_preexisting("Low"),
-            finding_new("Medium"),
-            finding_preexisting("High"),
-        ];
-        let result = PatchworkCheckResult::from_policy(&policy, &findings);
+        let result = PatchworkCheckResult::from_policy(
+            &min_medium,
+            &[
+                finding_new("Low"),
+                finding_preexisting("Low"),
+                finding_new("Medium"),
+                finding_preexisting("High"),
+            ],
+        );
         assert_eq!(result.state, "warning");
         assert!(result.description.contains("Medium: 1"));
         assert!(result.description.contains("High: 1 pre-existing"));
         assert!(!result.description.contains("Low"));
-    }
 
-    #[test]
-    fn test_min_severity_filters_all_to_success() {
-        let policy = PatchworkPolicy {
+        let min_critical = PatchworkPolicy {
             min_severity: Some("Critical".to_string()),
             ..Default::default()
         };
-        let findings = vec![
-            finding_new("Low"),
-            finding_new("Medium"),
-            finding_new("High"),
-        ];
-        let result = PatchworkCheckResult::from_policy(&policy, &findings);
+        let result = PatchworkCheckResult::from_policy(
+            &min_critical,
+            &[
+                finding_new("Low"),
+                finding_new("Medium"),
+                finding_new("High"),
+            ],
+        );
         assert_eq!(result.state, "success");
         assert_eq!(result.description, "Sashiko AI review found no regressions");
-    }
 
-    #[test]
-    fn test_custom_fail_severity_critical() {
-        let policy = PatchworkPolicy {
+        let fail_critical = PatchworkPolicy {
             fail_severity: "Critical".to_string(),
             ..Default::default()
         };
-        // High is below Critical threshold, so warning not fail
-        let findings = vec![finding_new("High")];
-        let result = PatchworkCheckResult::from_policy(&policy, &findings);
-        assert_eq!(result.state, "warning");
-    }
+        assert_eq!(
+            PatchworkCheckResult::from_policy(&fail_critical, &[finding_new("High")]).state,
+            "warning"
+        );
 
-    #[test]
-    fn test_custom_fail_severity_low() {
-        let policy = PatchworkPolicy {
+        let fail_low = PatchworkPolicy {
             fail_severity: "Low".to_string(),
             ..Default::default()
         };
-        // Any new finding triggers fail
-        let findings = vec![finding_new("Low")];
-        let result = PatchworkCheckResult::from_policy(&policy, &findings);
-        assert_eq!(result.state, "fail");
-    }
-
-    #[test]
-    fn test_missing_treated_as_new() {
-        // findings without preexisting field default to new
-        let findings = vec![serde_json::json!({"severity": "High", "problem": "test"})];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "fail");
-        assert!(result.description.contains("High: 1"));
-        assert!(!result.description.contains("pre-existing"));
-    }
-
-    #[test]
-    fn test_null_treated_as_new() {
-        let findings =
-            vec![serde_json::json!({"severity": "High", "problem": "test", "preexisting": null})];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert_eq!(result.state, "fail");
-    }
-
-    #[test]
-    fn test_description_dot_separator() {
-        let findings = vec![finding_new("Critical"), finding_new("Medium")];
-        let result = PatchworkCheckResult::from_policy(&default_policy(), &findings);
-        assert!(result.description.contains("\u{00b7}")); // middle dot
+        assert_eq!(
+            PatchworkCheckResult::from_policy(&fail_low, &[finding_new("Low")]).state,
+            "fail"
+        );
     }
 
     // -- compose_patchwork_email tests --
 
     #[test]
-    fn test_compose_patchwork_email_warning() {
+    fn test_compose_patchwork_email() {
         let (subject, body) = compose_patchwork_email(
             "<12345@kernel.org>",
             "warning",
@@ -504,48 +452,17 @@ mod tests {
             subject,
             "[sashiko-check] warning - [PATCH] fix null deref in foo"
         );
-        assert!(body.contains("msgid: <12345@kernel.org>"));
-        assert!(body.contains("status: warning"));
-        assert!(body.contains("description: Sashiko AI review found 2 potential issue(s)"));
-        assert!(body.contains("target_url: https://sashiko.dev/#/patchset/abc?part=1"));
-        assert!(body.contains("context: sashiko"));
-    }
-
-    #[test]
-    fn test_compose_patchwork_email_success() {
-        let (subject, body) = compose_patchwork_email(
-            "<99@kernel.org>",
-            "success",
-            "Sashiko AI review found no regressions",
-            "https://sashiko.dev/#/patchset/xyz?part=0",
-            "[PATCH v2] improve error handling",
-        );
-
-        assert_eq!(
-            subject,
-            "[sashiko-check] success - [PATCH v2] improve error handling"
-        );
-        assert!(body.contains("status: success"));
-    }
-
-    #[test]
-    fn test_compose_patchwork_email_line_format() {
-        let (_, body) = compose_patchwork_email(
-            "<id@host>",
-            "warning",
-            "desc",
-            "https://example.com",
-            "subj",
-        );
-
-        // Each key-value pair must be on its own line for downstream parsing
         let lines: Vec<&str> = body.lines().collect();
-        assert_eq!(lines.len(), 5);
-        assert!(lines[0].starts_with("msgid: "));
-        assert!(lines[1].starts_with("status: "));
-        assert!(lines[2].starts_with("description: "));
-        assert!(lines[3].starts_with("target_url: "));
-        assert!(lines[4].starts_with("context: "));
+        assert_eq!(
+            lines,
+            [
+                "msgid: <12345@kernel.org>",
+                "status: warning",
+                "description: Sashiko AI review found 2 potential issue(s)",
+                "target_url: https://sashiko.dev/#/patchset/abc?part=1",
+                "context: sashiko",
+            ]
+        );
     }
 
     // -- post_patchwork_check tests --

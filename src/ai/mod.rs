@@ -1161,108 +1161,79 @@ mod tests {
         Ok(())
     }
 
-    fn assert_remote_ai_error_payload_wire_format(
-        class: AiErrorClass,
-        expected: serde_json::Value,
-    ) -> Result<()> {
-        let payload = RemoteAiErrorPayload::new("x".to_string(), class);
-        let serialized = serde_json::to_value(&payload)?;
-
-        assert_eq!(serialized, expected);
-
-        let round_trip: RemoteAiErrorPayload = serde_json::from_value(serialized)?;
-        assert_eq!(round_trip, payload);
-
-        Ok(())
-    }
-
     #[test]
-    fn test_remote_ai_error_payload_rate_limit_wire_format() -> Result<()> {
-        assert_remote_ai_error_payload_wire_format(
-            AiErrorClass::RateLimit {
-                retry_after: Duration::from_secs(42),
-            },
-            json!({
-                "message": "x",
-                "class": "rate_limit",
-                "retry_after_secs": 42
-            }),
-        )
-    }
+    fn test_remote_ai_error_payload_wire_format_and_classification() -> Result<()> {
+        for (class, expected) in [
+            (
+                AiErrorClass::RateLimit {
+                    retry_after: Duration::from_secs(42),
+                },
+                json!({
+                    "message": "x",
+                    "class": "rate_limit",
+                    "retry_after_secs": 42
+                }),
+            ),
+            (
+                AiErrorClass::Transient {
+                    retry_after: Duration::from_secs(15),
+                },
+                json!({
+                    "message": "x",
+                    "class": "transient",
+                    "retry_after_secs": 15
+                }),
+            ),
+            (
+                AiErrorClass::Fatal,
+                json!({
+                    "message": "x",
+                    "class": "fatal"
+                }),
+            ),
+        ] {
+            let payload = RemoteAiErrorPayload::new("x".to_string(), class);
+            let serialized = serde_json::to_value(&payload)?;
+            assert_eq!(serialized, expected);
+            let round_trip: RemoteAiErrorPayload = serde_json::from_value(serialized)?;
+            assert_eq!(round_trip, payload);
 
-    #[test]
-    fn test_remote_ai_error_payload_transient_wire_format() -> Result<()> {
-        assert_remote_ai_error_payload_wire_format(
-            AiErrorClass::Transient {
-                retry_after: Duration::from_secs(15),
-            },
-            json!({
-                "message": "x",
-                "class": "transient",
-                "retry_after_secs": 15
-            }),
-        )
-    }
+            let err = RemoteAiError {
+                message: "remote error".to_string(),
+                class,
+            };
+            assert_eq!(err.ai_error_class(), class);
+        }
 
-    #[test]
-    fn test_remote_ai_error_payload_fatal_wire_format() -> Result<()> {
-        assert_remote_ai_error_payload_wire_format(
-            AiErrorClass::Fatal,
-            json!({
-                "message": "x",
-                "class": "fatal"
-            }),
-        )
-    }
-
-    #[test]
-    fn test_remote_ai_error_payload_requires_retry_after() {
         let err = serde_json::from_value::<RemoteAiErrorPayload>(json!({
             "message": "x",
             "class": "rate_limit"
         }))
         .unwrap_err();
-
         assert!(err.to_string().contains("retry_after_secs"));
+
+        Ok(())
     }
 
     #[test]
-    fn test_remote_ai_error_classifies_from_payload_class() {
-        let retry_after = Duration::from_secs(42);
-        let err = RemoteAiError {
-            message: "remote rate limit".to_string(),
-            class: AiErrorClass::RateLimit { retry_after },
-        };
-
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::RateLimit { retry_after }
-        );
-    }
-
-    #[test]
-    fn test_classify_status_code_rate_limit() {
+    fn test_classify_status_code() {
         assert_eq!(
             classify_status_code(reqwest::StatusCode::TOO_MANY_REQUESTS),
             Some(AiErrorClass::RateLimit {
                 retry_after: DEFAULT_RETRY_AFTER,
             })
         );
-    }
-
-    #[test]
-    fn test_classify_status_code_server_error() {
         assert_eq!(
             classify_status_code(reqwest::StatusCode::SERVICE_UNAVAILABLE),
             Some(AiErrorClass::Transient {
                 retry_after: DEFAULT_RETRY_AFTER,
             })
         );
-    }
-
-    #[test]
-    fn test_classify_status_code_other() {
         assert_eq!(classify_status_code(reqwest::StatusCode::BAD_REQUEST), None);
+        assert_eq!(
+            classify_status_code(reqwest::StatusCode::NOT_IMPLEMENTED),
+            None
+        );
     }
 
     fn assert_ai_error_class(error: impl Into<anyhow::Error>, expected: AiErrorClass) {
@@ -1271,42 +1242,31 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_ai_error_remote_rate_limit() {
-        let retry_after = Duration::from_secs(42);
-        assert_ai_error_class(
-            RemoteAiError {
-                message: "remote rate limit".to_string(),
-                class: AiErrorClass::RateLimit { retry_after },
-            },
-            AiErrorClass::RateLimit { retry_after },
-        );
-    }
+    fn test_classify_ai_error_variants() {
+        for (class, msg) in [
+            (
+                AiErrorClass::RateLimit {
+                    retry_after: Duration::from_secs(42),
+                },
+                "remote rate limit",
+            ),
+            (
+                AiErrorClass::Transient {
+                    retry_after: Duration::from_secs(15),
+                },
+                "remote transient",
+            ),
+            (AiErrorClass::Fatal, "remote fatal"),
+        ] {
+            assert_ai_error_class(
+                RemoteAiError {
+                    message: msg.to_string(),
+                    class,
+                },
+                class,
+            );
+        }
 
-    #[test]
-    fn test_classify_ai_error_remote_transient() {
-        let retry_after = Duration::from_secs(15);
-        assert_ai_error_class(
-            RemoteAiError {
-                message: "remote transient".to_string(),
-                class: AiErrorClass::Transient { retry_after },
-            },
-            AiErrorClass::Transient { retry_after },
-        );
-    }
-
-    #[test]
-    fn test_classify_ai_error_remote_fatal() {
-        assert_ai_error_class(
-            RemoteAiError {
-                message: "remote fatal".to_string(),
-                class: AiErrorClass::Fatal,
-            },
-            AiErrorClass::Fatal,
-        );
-    }
-
-    #[test]
-    fn test_classify_ai_error_provider_cascade() {
         assert_ai_error_class(
             openai::OpenAiCompatError::RateLimitExceeded(Duration::from_secs(7)),
             AiErrorClass::RateLimit {
@@ -1329,26 +1289,10 @@ mod tests {
             ReviewError::FormatRejection("bad response".to_string()),
             AiErrorClass::Fatal,
         );
-    }
-
-    #[test]
-    fn test_classify_ai_error_unrelated_error_is_fatal() {
         assert_ai_error_class(anyhow!("totally unrelated error"), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_classify_ai_error_string_shaped_remote_error_is_fatal() {
         assert_ai_error_class(
             anyhow!("Remote AI Error: rate limit exceeded"),
             AiErrorClass::Fatal,
-        );
-    }
-
-    #[test]
-    fn test_classify_status_code_not_implemented_is_fatal() {
-        assert_eq!(
-            classify_status_code(reqwest::StatusCode::NOT_IMPLEMENTED),
-            None
         );
     }
 

@@ -505,152 +505,6 @@ mod tests {
         assert!(config.lists.is_empty());
     }
 
-    #[test]
-    fn test_patchwork_email_field() {
-        let toml_content = r#"
-            [defaults]
-
-            ["linux-media@vger.kernel.org"]
-
-            ["linux-media@vger.kernel.org".patchwork]
-            enabled = true
-            email = "pw-bot@lists.example.org"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let media = config
-            .lists
-            .get("linux-media@vger.kernel.org")
-            .expect("media missing");
-        assert!(media.patchwork.enabled);
-        assert_eq!(
-            media.patchwork.email.as_deref(),
-            Some("pw-bot@lists.example.org")
-        );
-        assert!(media.patchwork.api_url.is_none());
-        assert!(media.patchwork.token.is_none());
-    }
-
-    #[test]
-    fn test_patchwork_email_field_absent() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "https://patchwork.kernel.org/api/1.3"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert!(net.patchwork.enabled);
-        assert!(net.patchwork.email.is_none());
-        assert!(net.patchwork.api_url.is_some());
-    }
-
-    #[test]
-    fn test_url_normalization_trailing_slash() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "https://patchwork.kernel.org/api/1.3/"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert_eq!(
-            net.patchwork.api_url.as_deref(),
-            Some("https://patchwork.kernel.org/api/1.3")
-        );
-    }
-
-    #[test]
-    fn test_url_normalization_multiple_trailing_slashes() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "https://patchwork.kernel.org/api/1.3///"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert_eq!(
-            net.patchwork.api_url.as_deref(),
-            Some("https://patchwork.kernel.org/api/1.3")
-        );
-    }
-
-    #[test]
-    fn test_url_normalization_invalid_scheme() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "ftp://patchwork.kernel.org/api/1.3"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        // Invalid scheme should be cleared
-        assert!(net.patchwork.api_url.is_none());
-    }
-
-    #[test]
-    fn test_url_normalization_valid_http() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "http://localhost:8000/api/1.3"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert_eq!(
-            net.patchwork.api_url.as_deref(),
-            Some("http://localhost:8000/api/1.3")
-        );
-    }
-
     fn make_config_with_patchwork(
         enabled: bool,
         api_url: Option<&str>,
@@ -676,87 +530,112 @@ mod tests {
     }
 
     #[test]
-    fn test_token_override_fills_gap() {
-        let mut config =
-            make_config_with_patchwork(true, Some("https://patchwork.kernel.org/api/1.3"), None);
-        config.apply_token_override(Some("injected-token"));
+    fn test_patchwork_policy_deserialization_and_url_normalization() {
+        let toml_content = r#"
+            [defaults]
 
-        let net = config.lists.get("netdev@vger.kernel.org").unwrap();
-        assert_eq!(net.patchwork.token.as_deref(), Some("injected-token"));
-    }
+            ["linux-media@vger.kernel.org".patchwork]
+            enabled = true
+            email = "pw-bot@lists.example.org"
 
-    #[test]
-    fn test_token_override_no_overwrite_explicit() {
-        let mut config = make_config_with_patchwork(
-            true,
-            Some("https://patchwork.kernel.org/api/1.3"),
-            Some("toml-explicit-token"),
-        );
-        config.apply_token_override(Some("injected-token"));
+            ["netdev@vger.kernel.org".patchwork]
+            enabled = true
+            api_url = "https://patchwork.kernel.org/api/1.3///"
+            min_severity = "Medium"
+            fail_severity = "Critical"
 
-        let net = config.lists.get("netdev@vger.kernel.org").unwrap();
+            ["local@vger.kernel.org".patchwork]
+            enabled = true
+            api_url = "http://localhost:8000/api/1.3/"
+
+            ["remote-http@vger.kernel.org".patchwork]
+            enabled = true
+            api_url = "http://patchwork.example.org/api/1.3"
+
+            ["bad-scheme@vger.kernel.org".patchwork]
+            enabled = true
+            api_url = "ftp://patchwork.kernel.org/api/1.3"
+        "#;
+
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, "{}", toml_content).unwrap();
+
+        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
+
+        let media = &config.lists["linux-media@vger.kernel.org"].patchwork;
+        assert!(media.enabled);
+        assert_eq!(media.email.as_deref(), Some("pw-bot@lists.example.org"));
+        assert!(media.api_url.is_none());
+        assert!(media.token.is_none());
+        assert!(media.min_severity.is_none());
+        assert_eq!(media.fail_severity, "High");
+
+        let net = &config.lists["netdev@vger.kernel.org"].patchwork;
+        assert!(net.enabled);
+        assert!(net.email.is_none());
         assert_eq!(
-            net.patchwork.token.as_deref(),
-            Some("toml-explicit-token"),
-            "explicit TOML token should not be overwritten"
+            net.api_url.as_deref(),
+            Some("https://patchwork.kernel.org/api/1.3")
         );
-    }
+        assert_eq!(net.min_severity.as_deref(), Some("Medium"));
+        assert_eq!(net.fail_severity, "Critical");
 
-    #[test]
-    fn test_token_override_skips_disabled() {
-        let mut config =
-            make_config_with_patchwork(false, Some("https://patchwork.kernel.org/api/1.3"), None);
-        config.apply_token_override(Some("injected-token"));
-
-        let net = config.lists.get("netdev@vger.kernel.org").unwrap();
-        assert!(
-            net.patchwork.token.is_none(),
-            "disabled patchwork should not get override token"
-        );
-    }
-
-    #[test]
-    fn test_token_override_skips_no_api_url() {
-        let mut config = make_config_with_patchwork(true, None, None);
-        config.apply_token_override(Some("injected-token"));
-
-        let net = config.lists.get("netdev@vger.kernel.org").unwrap();
-        assert!(
-            net.patchwork.token.is_none(),
-            "patchwork without api_url should not get override token"
-        );
-    }
-
-    #[test]
-    fn test_token_override_none_is_noop() {
-        let mut config =
-            make_config_with_patchwork(true, Some("https://patchwork.kernel.org/api/1.3"), None);
-        config.apply_token_override(None);
-
-        let net = config.lists.get("netdev@vger.kernel.org").unwrap();
-        assert!(net.patchwork.token.is_none());
-    }
-
-    #[test]
-    fn test_patchwork_normalize_direct() {
-        let mut policy = PatchworkPolicy {
-            enabled: true,
-            api_url: Some("https://example.org/api/1.3/".to_string()),
-            ..Default::default()
-        };
-        policy.normalize();
+        let local = &config.lists["local@vger.kernel.org"].patchwork;
         assert_eq!(
-            policy.api_url.as_deref(),
-            Some("https://example.org/api/1.3")
+            local.api_url.as_deref(),
+            Some("http://localhost:8000/api/1.3")
         );
 
-        let mut bad = PatchworkPolicy {
-            enabled: true,
-            api_url: Some("ftp://example.org".to_string()),
-            ..Default::default()
-        };
-        bad.normalize();
-        assert!(bad.api_url.is_none());
+        let remote_http = &config.lists["remote-http@vger.kernel.org"].patchwork;
+        assert_eq!(
+            remote_http.api_url.as_deref(),
+            Some("http://patchwork.example.org/api/1.3")
+        );
+
+        let bad_scheme = &config.lists["bad-scheme@vger.kernel.org"].patchwork;
+        assert!(bad_scheme.api_url.is_none());
+    }
+
+    #[test]
+    fn test_apply_token_override() {
+        let cases = [
+            (
+                true,
+                Some("https://patchwork.kernel.org/api/1.3"),
+                None,
+                Some("injected-token"),
+                Some("injected-token"),
+            ),
+            (
+                true,
+                Some("https://patchwork.kernel.org/api/1.3"),
+                Some("toml-explicit-token"),
+                Some("injected-token"),
+                Some("toml-explicit-token"),
+            ),
+            (
+                false,
+                Some("https://patchwork.kernel.org/api/1.3"),
+                None,
+                Some("injected-token"),
+                None,
+            ),
+            (true, None, None, Some("injected-token"), None),
+            (
+                true,
+                Some("https://patchwork.kernel.org/api/1.3"),
+                None,
+                None,
+                None,
+            ),
+        ];
+
+        for (enabled, api_url, initial_token, override_token, expected) in cases {
+            let mut config = make_config_with_patchwork(enabled, api_url, initial_token);
+            config.apply_token_override(override_token);
+            let net = config.lists.get("netdev@vger.kernel.org").unwrap();
+            assert_eq!(net.patchwork.token.as_deref(), expected);
+        }
     }
 
     #[test]
@@ -773,108 +652,6 @@ mod tests {
             "http://patchwork.kernel.org/api"
         ));
         assert!(!PatchworkPolicy::is_localhost_url("http://10.0.0.1/api"));
-    }
-
-    #[test]
-    fn test_normalize_http_non_localhost_still_accepted() {
-        // http:// for non-localhost is accepted (with a warning) not rejected
-        let mut policy = PatchworkPolicy {
-            enabled: true,
-            api_url: Some("http://patchwork.example.org/api/1.3".to_string()),
-            ..Default::default()
-        };
-        policy.normalize();
-        assert_eq!(
-            policy.api_url.as_deref(),
-            Some("http://patchwork.example.org/api/1.3"),
-            "http:// non-localhost should be accepted with warning, not rejected"
-        );
-    }
-
-    #[test]
-    fn test_min_severity_deserialization() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "https://patchwork.kernel.org/api/1.3"
-            min_severity = "Medium"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert_eq!(net.patchwork.min_severity.as_deref(), Some("Medium"));
-    }
-
-    #[test]
-    fn test_min_severity_absent_is_none() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "https://patchwork.kernel.org/api/1.3"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert!(net.patchwork.min_severity.is_none());
-    }
-
-    #[test]
-    fn test_fail_severity_default_is_high() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "https://patchwork.kernel.org/api/1.3"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert_eq!(net.patchwork.fail_severity, "High");
-    }
-
-    #[test]
-    fn test_fail_severity_custom() {
-        let toml_content = r#"
-            [defaults]
-
-            ["netdev@vger.kernel.org".patchwork]
-            enabled = true
-            api_url = "https://patchwork.kernel.org/api/1.3"
-            fail_severity = "Critical"
-        "#;
-
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", toml_content).unwrap();
-
-        let config = EmailPolicyConfig::load(file.path()).expect("Failed to load policy");
-        let net = config
-            .lists
-            .get("netdev@vger.kernel.org")
-            .expect("net missing");
-        assert_eq!(net.patchwork.fail_severity, "Critical");
     }
 
     #[test]

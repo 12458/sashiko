@@ -1187,44 +1187,69 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_failure_429_prefers_retry_after_header() {
+    fn test_classify_generate_content_failure_status_codes() {
         let err = classify_generate_content_failure(
             reqwest::StatusCode::TOO_MANY_REQUESTS,
             Some(12.0),
             "Please retry in 99.0s",
         );
-
         assert!(matches!(
             err,
             GeminiError::QuotaExceeded(d) if d == Duration::from_secs_f64(13.0)
         ));
-    }
 
-    #[test]
-    fn test_classify_failure_429_falls_back_to_body_hint() {
         let err = classify_generate_content_failure(
             reqwest::StatusCode::TOO_MANY_REQUESTS,
             None,
             "Quota exceeded. Please retry in 12.5s.",
         );
-
         assert!(matches!(
             err,
             GeminiError::QuotaExceeded(d) if d == Duration::from_secs_f64(13.5)
         ));
-    }
 
-    #[test]
-    fn test_classify_failure_429_without_any_hint() {
         let err = classify_generate_content_failure(
             reqwest::StatusCode::TOO_MANY_REQUESTS,
             None,
             "Quota exceeded.",
         );
-
         assert!(matches!(
             err,
             GeminiError::QuotaExceeded(d) if d == Duration::from_secs_f64(31.0)
+        ));
+
+        let err =
+            classify_generate_content_failure(reqwest::StatusCode::FORBIDDEN, None, "forbidden");
+        assert!(matches!(err, GeminiError::PermissionDenied(body) if body == "forbidden"));
+
+        let err = classify_generate_content_failure(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            Some(4.0),
+            "Overloaded prefill queue.",
+        );
+        assert!(matches!(
+            err,
+            GeminiError::TransientError(d, summary)
+                if d == Duration::from_secs(4)
+                    && summary == "503 Service Unavailable (request preempted in prefill queue)"
+        ));
+
+        let status_499 = reqwest::StatusCode::from_u16(499).expect("499 is a valid status code");
+        let err = classify_generate_content_failure(status_499, None, "cancelled");
+        assert!(matches!(
+            err,
+            GeminiError::TransientError(d, _) if d == Duration::from_secs(0)
+        ));
+
+        let err = classify_generate_content_failure(
+            reqwest::StatusCode::BAD_REQUEST,
+            None,
+            "bad request",
+        );
+        assert!(matches!(
+            err,
+            GeminiError::ApiError(status, body)
+                if status == reqwest::StatusCode::BAD_REQUEST && body == "bad request"
         ));
     }
 
@@ -1273,105 +1298,46 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_failure_403_denies_permission() {
-        let err =
-            classify_generate_content_failure(reqwest::StatusCode::FORBIDDEN, None, "forbidden");
+    fn test_gemini_error_classification() {
+        let cases = [
+            (
+                GeminiError::QuotaExceeded(Duration::from_secs(7)),
+                AiErrorClass::RateLimit {
+                    retry_after: Duration::from_secs(7),
+                },
+            ),
+            (
+                GeminiError::TransientError(Duration::from_secs(11), "busy".to_string()),
+                AiErrorClass::Transient {
+                    retry_after: Duration::from_secs(11),
+                },
+            ),
+            (
+                GeminiError::PermissionDenied("forbidden".to_string()),
+                AiErrorClass::Fatal,
+            ),
+            (
+                GeminiError::ApiError(
+                    reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                    "unavailable".to_string(),
+                ),
+                AiErrorClass::Transient {
+                    retry_after: DEFAULT_RETRY_AFTER,
+                },
+            ),
+            (
+                GeminiError::ApiError(reqwest::StatusCode::BAD_REQUEST, "bad request".to_string()),
+                AiErrorClass::Fatal,
+            ),
+            (
+                GeminiError::Other("unknown".to_string()),
+                AiErrorClass::Fatal,
+            ),
+        ];
 
-        assert!(matches!(err, GeminiError::PermissionDenied(body) if body == "forbidden"));
-    }
-
-    #[test]
-    fn test_classify_failure_server_error_is_transient() {
-        let err = classify_generate_content_failure(
-            reqwest::StatusCode::SERVICE_UNAVAILABLE,
-            Some(4.0),
-            "Overloaded prefill queue.",
-        );
-
-        assert!(matches!(
-            err,
-            GeminiError::TransientError(d, summary)
-                if d == Duration::from_secs(4)
-                    && summary == "503 Service Unavailable (request preempted in prefill queue)"
-        ));
-    }
-
-    #[test]
-    fn test_classify_failure_499_is_transient() {
-        let status = reqwest::StatusCode::from_u16(499).expect("499 is a valid status code");
-        let err = classify_generate_content_failure(status, None, "cancelled");
-
-        assert!(matches!(
-            err,
-            GeminiError::TransientError(d, _) if d == Duration::from_secs(0)
-        ));
-    }
-
-    #[test]
-    fn test_classify_failure_client_error_is_api_error() {
-        let err = classify_generate_content_failure(
-            reqwest::StatusCode::BAD_REQUEST,
-            None,
-            "bad request",
-        );
-
-        assert!(matches!(
-            err,
-            GeminiError::ApiError(status, body)
-                if status == reqwest::StatusCode::BAD_REQUEST && body == "bad request"
-        ));
-    }
-
-    #[test]
-    fn test_quota_exceeded_classifies_as_rate_limit() {
-        let retry_after = Duration::from_secs(7);
-        let err = GeminiError::QuotaExceeded(retry_after);
-
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::RateLimit { retry_after }
-        );
-    }
-
-    #[test]
-    fn test_transient_error_classifies_as_transient() {
-        let retry_after = Duration::from_secs(11);
-        let err = GeminiError::TransientError(retry_after, "busy".to_string());
-
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::Transient { retry_after }
-        );
-    }
-
-    #[test]
-    fn test_permission_denied_classifies_as_fatal() {
-        let err = GeminiError::PermissionDenied("forbidden".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_api_error_server_status_classifies_as_transient() {
-        let err = GeminiError::ApiError(
-            reqwest::StatusCode::SERVICE_UNAVAILABLE,
-            "unavailable".to_string(),
-        );
-
-        assert_eq!(
-            err.ai_error_class(),
-            AiErrorClass::Transient {
-                retry_after: DEFAULT_RETRY_AFTER,
-            }
-        );
-    }
-
-    #[test]
-    fn test_api_error_client_status_classifies_as_fatal() {
-        let err =
-            GeminiError::ApiError(reqwest::StatusCode::BAD_REQUEST, "bad request".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
+        for (err, expected) in cases {
+            assert_eq!(err.ai_error_class(), expected);
+        }
     }
 
     fn local_client(base_url: &str) -> GeminiClient {
@@ -1631,13 +1597,6 @@ mod tests {
     async fn test_invalid_json_stays_fatal() {
         let err = error_for(test_http::complete("200 OK", "", "not json")).await;
         assert_eq!(crate::ai::classify_ai_error(&err), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_other_classifies_as_fatal() {
-        let err = GeminiError::Other("unknown".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
     }
 
     #[test]
