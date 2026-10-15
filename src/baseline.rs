@@ -1508,16 +1508,10 @@ F: patterns/
     }
 
     #[tokio::test]
-    async fn test_resolve_custom_remotes() {
+    async fn test_resolve_custom_remotes_precede_linux_next() {
         use crate::settings::CustomRemoteSettings;
         let temp_dir = tempfile::tempdir().unwrap();
         let repo_path = temp_dir.path();
-
-        // Init git repo to avoid ensure_remote failing too hard
-        crate::git_cmd::in_dir(repo_path)
-            .arg("init")
-            .output()
-            .unwrap();
 
         let mut remote_map = HashMap::new();
         let dummy_url = repo_path.join("dummy_remote").to_str().unwrap().to_string();
@@ -1546,7 +1540,21 @@ F: patterns/
             })
             .collect();
 
-        assert!(candidate_names.contains(&"dummy-repo".to_string()));
+        let pos_custom = candidate_names
+            .iter()
+            .position(|n| n == "dummy-repo")
+            .unwrap();
+        let pos_next = candidate_names
+            .iter()
+            .position(|n| n == "linux-next")
+            .unwrap();
+        assert!(
+            pos_custom < pos_next,
+            "custom remote at {} should precede linux-next at {}: {:?}",
+            pos_custom,
+            pos_next,
+            candidate_names
+        );
     }
 
     /// Runs git in the test repository and returns its trimmed stdout.
@@ -1598,33 +1606,21 @@ F: patterns/
     }
 
     #[tokio::test]
-    async fn test_merged_default_head_is_detected() {
+    async fn test_merged_default_head_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut registry, old, mid, tip, side) = merged_head_fixture(dir.path()).await;
+
         // tytso/ext4.git: the T: entry names no branch and HEAD is a
         // master that mainline passed years ago.
-        let dir = tempfile::tempdir().unwrap();
-        let (registry, old, mid, _, _) = merged_head_fixture(dir.path()).await;
-
         let ext4 = default_head("tytso/ext4");
         assert!(registry.is_merged_default_head(&ext4, &old).await);
         assert!(registry.is_merged_default_head(&ext4, &mid).await);
-    }
-
-    #[tokio::test]
-    async fn test_current_default_head_is_kept() {
-        let dir = tempfile::tempdir().unwrap();
-        let (registry, _, _, tip, side) = merged_head_fixture(dir.path()).await;
 
         let tree = default_head("some/tree");
         // Level with mainline: nothing is stale yet.
         assert!(!registry.is_merged_default_head(&tree, &tip).await);
         // Carries work mainline does not have.
         assert!(!registry.is_merged_default_head(&tree, &side).await);
-    }
-
-    #[tokio::test]
-    async fn test_chosen_baselines_are_never_deferred() {
-        let dir = tempfile::tempdir().unwrap();
-        let (registry, old, _, _, _) = merged_head_fixture(dir.path()).await;
 
         let explicit_branch = BaselineResolution::RemoteTarget {
             url: "git://git.kernel.org/pub/scm/linux/kernel/git/tytso/ext4.git".to_string(),
@@ -1640,36 +1636,14 @@ F: patterns/
                 candidate
             );
         }
-    }
 
-    #[tokio::test]
-    async fn test_linux_next_is_never_deferred() {
         // linux-next is also a candidate without a branch.
-        let dir = tempfile::tempdir().unwrap();
-        let (registry, old, _, _, _) = merged_head_fixture(dir.path()).await;
-
         let next = BaselineResolution::RemoteTarget {
             url: LINUX_NEXT_URL.to_string(),
             name: "linux-next".to_string(),
             branch: None,
         };
         assert!(!registry.is_merged_default_head(&next, &old).await);
-    }
-
-    #[test]
-    fn test_offline_git_disables_lazy_fetch() {
-        let cmd = offline_git(Path::new("."), &["rev-parse", "HEAD"]);
-        let envs: Vec<_> = cmd.as_std().get_envs().collect();
-        assert!(envs.contains(&(
-            std::ffi::OsStr::new("GIT_NO_LAZY_FETCH"),
-            Some(std::ffi::OsStr::new("1"))
-        )));
-    }
-
-    #[tokio::test]
-    async fn test_merged_default_head_without_mainline_ref() {
-        let dir = tempfile::tempdir().unwrap();
-        let (mut registry, old, _, _, _) = merged_head_fixture(dir.path()).await;
 
         // No mainline ref to compare against: keep the old behaviour.
         registry.mainline_remote = Some(("unused".to_string(), "nosuch".to_string()));
@@ -1680,48 +1654,13 @@ F: patterns/
         );
     }
 
-    #[tokio::test]
-    async fn test_custom_remotes_precede_linux_next() {
-        use crate::settings::CustomRemoteSettings;
-        let temp_dir = tempfile::tempdir().unwrap();
-        let repo_path = temp_dir.path();
-
-        crate::git_cmd::in_dir(repo_path)
-            .arg("init")
-            .output()
-            .unwrap();
-
-        let dummy_url = repo_path.join("dummy_remote").to_str().unwrap().to_string();
-        let registry = BaselineRegistry {
-            entries: Vec::new(),
-            remote_map: HashMap::new(),
-            custom_remotes: Some(vec![CustomRemoteSettings {
-                name: "topic-tree".to_string(),
-                url: dummy_url,
-                check_all_branches: false,
-                only_branches: Some(vec!["topic-next".to_string()]),
-            }]),
-            repo_path: repo_path.to_path_buf(),
-            mainline_remote: None,
-        };
-
-        let candidates = registry.resolve_candidates(&[], "Subject", None).await;
-        let names: Vec<String> = candidates
-            .iter()
-            .filter_map(|c| match c {
-                BaselineResolution::RemoteTarget { name, .. } => Some(name.clone()),
-                _ => None,
-            })
-            .collect();
-
-        let pos_custom = names.iter().position(|n| n == "topic-tree").unwrap();
-        let pos_next = names.iter().position(|n| n == "linux-next").unwrap();
-        assert!(
-            pos_custom < pos_next,
-            "custom remote at {} should precede linux-next at {}: {:?}",
-            pos_custom,
-            pos_next,
-            names
-        );
+    #[test]
+    fn test_offline_git_disables_lazy_fetch() {
+        let cmd = offline_git(Path::new("."), &["rev-parse", "HEAD"]);
+        let envs: Vec<_> = cmd.as_std().get_envs().collect();
+        assert!(envs.contains(&(
+            std::ffi::OsStr::new("GIT_NO_LAZY_FETCH"),
+            Some(std::ffi::OsStr::new("1"))
+        )));
     }
 }

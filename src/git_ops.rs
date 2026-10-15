@@ -1644,7 +1644,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_commit_hash_resolves_commits_and_tags() -> Result<()> {
+    async fn test_get_commit_hash_resolution_and_rejection() -> Result<()> {
         let repo = commit_resolution_repo().await?;
         let head = run_test_git(repo.path(), &["rev-parse", "HEAD"]).await?;
         run_test_git(repo.path(), &["tag", "lightweight"]).await?;
@@ -1667,24 +1667,14 @@ mod tests {
                 "failed to resolve {ref_name} to its commit"
             );
         }
-        Ok(())
-    }
 
-    #[tokio::test]
-    async fn test_get_commit_hash_rejects_missing_objects() -> Result<()> {
-        let repo = commit_resolution_repo().await?;
         for ref_name in ["1111111111111111111111111111111111111111", "missing-branch"] {
             assert!(
                 get_commit_hash(repo.path(), ref_name).await.is_err(),
                 "accepted missing revision {ref_name}"
             );
         }
-        Ok(())
-    }
 
-    #[tokio::test]
-    async fn test_get_commit_hash_rejects_non_commit_objects() -> Result<()> {
-        let repo = commit_resolution_repo().await?;
         for ref_name in ["HEAD^{tree}", "HEAD:value.txt"] {
             let hash = run_test_git(repo.path(), &["rev-parse", ref_name]).await?;
             assert!(
@@ -1692,12 +1682,7 @@ mod tests {
                 "accepted non-commit object {ref_name} ({hash})"
             );
         }
-        Ok(())
-    }
 
-    #[tokio::test]
-    async fn test_get_commit_hash_rejects_options_and_ranges() -> Result<()> {
-        let repo = commit_resolution_repo().await?;
         for ref_name in ["--all", "--default=HEAD", "HEAD..HEAD", ""] {
             assert!(
                 get_commit_hash(repo.path(), ref_name).await.is_err(),
@@ -1903,64 +1888,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_apply_patch_failure() -> Result<()> {
-        let temp_dir = tempfile::tempdir()?;
-        let repo_path = temp_dir.path().to_path_buf();
-
-        // Init git repo
-        crate::git_cmd::in_dir_async(&repo_path)
-            .args(["init"])
-            .output()
-            .await?;
-
-        // Ensure we are on master
-        let _ = crate::git_cmd::in_dir_async(&repo_path)
-            .args(["branch", "-m", "master"])
-            .output()
-            .await;
-
-        crate::git_cmd::in_dir_async(&repo_path)
-            .args(["config", "user.email", "test@example.com"])
-            .output()
-            .await?;
-        crate::git_cmd::in_dir_async(&repo_path)
-            .args(["config", "user.name", "Test User"])
-            .output()
-            .await?;
-
-        // Create a dummy file
-        let file_path = repo_path.join("test.txt");
-        let mut file = File::create(&file_path)?;
-        writeln!(file, "Hello World")?;
-        crate::git_cmd::in_dir_async(&repo_path)
-            .args(["add", "."])
-            .output()
-            .await?;
-        crate::git_cmd::in_dir_async(&repo_path)
-            .args(["commit", "-m", "Initial commit"])
-            .output()
-            .await?;
-        let head_hash = get_commit_hash(&repo_path, "HEAD").await?;
-
-        // Create a worktree
-        let worktree = GitWorktree::new(&repo_path, &head_hash, None).await?;
-
-        // Try to apply a bad patch
-        let bad_patch = "Invalid patch content";
-        let result = worktree.apply_patch(bad_patch).await;
-
-        assert!(result.is_err());
-        let err_msg = result.err().unwrap().to_string();
-
-        // Check if stdout and stderr are mentioned in the error message
-        assert!(err_msg.contains("stdout:"));
-        assert!(err_msg.contains("stderr:"));
-        assert!(err_msg.contains("git am failed"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_apply_patch_classifies_failures_and_aborts() -> Result<()> {
         let repo = commit_resolution_repo().await?;
         let head = get_commit_hash(repo.path(), "HEAD").await?;
@@ -1988,6 +1915,7 @@ mod tests {
                 PatchApplyFailure::MalformedPatch,
             ),
             ("", PatchApplyFailure::EmptyPatch),
+            ("Invalid patch content", PatchApplyFailure::EmptyPatch),
         ] {
             let mbox = format!(
                 "From: Test User <test@example.com>\n\

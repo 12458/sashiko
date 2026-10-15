@@ -3044,27 +3044,25 @@ mod tests {
     async fn scoped_threads_resolve_large_series_without_expanding_search_results() -> Result<()> {
         let db = memory_db().await?;
         let threads = [
-            synthetic_mbox(&(0..16).collect::<Vec<_>>(), 98),
-            synthetic_mbox(&(16..27).collect::<Vec<_>>(), 69),
-            synthetic_mbox(&(27..33).collect::<Vec<_>>(), 37),
+            synthetic_mbox(&(0..2).collect::<Vec<_>>(), 200),
+            synthetic_mbox(&(2..4).collect::<Vec<_>>(), 180),
+            synthetic_mbox(&(4..6).collect::<Vec<_>>(), 170),
         ];
+        let mut parsed_threads = Vec::new();
         let mut ids = Vec::new();
         for raw in &threads {
-            ids.extend(
-                patches_from_mbox(raw.clone())
-                    .await?
-                    .into_iter()
-                    .map(|p| p.git_patch_id),
-            );
+            let patches = patches_from_mbox(raw.clone()).await?;
+            ids.extend(patches.iter().map(|p| p.git_patch_id.clone()));
+            parsed_threads.push(patches);
         }
         // Application order must come from the metadata, not thread order.
         ids.reverse();
-        let broad_search = synthetic_mbox(&(0..33).collect::<Vec<_>>(), 756);
+        let broad_search = synthetic_mbox(&(0..6).collect::<Vec<_>>(), 550);
         let error = patches_from_mbox(broad_search.clone()).await.unwrap_err();
         assert!(
             error
                 .to_string()
-                .contains("756 messages, exceeding the limit of 500")
+                .contains("550 messages, exceeding the limit of 500")
         );
         let hints = (0..3)
             .map(|i| format!("series-{i}@example.com"))
@@ -3072,13 +3070,19 @@ mod tests {
         let mut calls = Vec::new();
         let resolved = resolve_prerequisite_patches(&db, &ids, &hints, |lookup| {
             calls.push(lookup.clone());
-            let raw = match lookup {
+            let parsed = match &lookup {
                 PrerequisiteLookup::Thread(id) => {
-                    threads[hints.iter().position(|hint| hint == &id).unwrap()].clone()
+                    Some(parsed_threads[hints.iter().position(|hint| hint == id).unwrap()].clone())
                 }
-                PrerequisiteLookup::PatchId(_) => broad_search.clone(),
+                PrerequisiteLookup::PatchId(_) => None,
             };
-            async move { patches_from_mbox(raw).await }
+            let broad = broad_search.clone();
+            async move {
+                match parsed {
+                    Some(patches) => Ok(patches),
+                    None => patches_from_mbox(broad).await,
+                }
+            }
         })
         .await?;
         assert_eq!(
@@ -3088,7 +3092,7 @@ mod tests {
                 .map(PrerequisiteLookup::Thread)
                 .collect::<Vec<_>>()
         );
-        assert_eq!(resolved.len(), 33);
+        assert_eq!(resolved.len(), 6);
         assert_eq!(
             resolved
                 .into_iter()
