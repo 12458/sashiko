@@ -759,48 +759,6 @@ pub fn build_sashiko_series_context(
 }
 
 #[cfg(test)]
-fn append_stage_items(
-    target: &mut Vec<Value>,
-    items: &[Value],
-    stage: &str,
-    default_type: &str,
-    default_text_key: &str,
-) {
-    for item in items {
-        if let Some(item) = normalize_stage_item(item, stage, default_type, default_text_key) {
-            target.push(item);
-        }
-    }
-}
-
-#[cfg(test)]
-fn append_stage_dismissed_concerns(target: &mut Vec<Value>, items: &[Value], stage: &str) {
-    append_stage_items(target, items, stage, "General", "description");
-}
-
-#[cfg(test)]
-fn normalize_stage_item(
-    item: &Value,
-    stage: &str,
-    default_type: &str,
-    default_text_key: &str,
-) -> Option<Value> {
-    if let Some(obj) = item.as_object() {
-        let mut with_stage = obj.clone();
-        with_stage.insert("source_stage".to_string(), json!(stage));
-        Some(Value::Object(with_stage))
-    } else {
-        item.as_str().map(|s| {
-            let mut obj = serde_json::Map::new();
-            obj.insert("source_stage".to_string(), json!(stage));
-            obj.insert("type".to_string(), json!(default_type));
-            obj.insert(default_text_key.to_string(), json!(s));
-            Value::Object(obj)
-        })
-    }
-}
-
-#[cfg(test)]
 mod prefetch_tests;
 
 #[cfg(test)]
@@ -904,178 +862,49 @@ mod tests {
     }
 
     #[test]
-    fn test_append_stage_dismissed_concerns_preserves_category_type() {
-        let mut items = Vec::new();
-        let input = vec![json!({
-            "type": "Resource Management",
-            "description": "suspected cross-zone page leak does not apply",
-            "reasoning": "hugetlb_free_cross_zone_pages() runs before HVO init"
-        })];
-
-        append_stage_dismissed_concerns(&mut items, &input, "goal");
-
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["source_stage"], "goal");
-        assert_eq!(items[0]["type"], "Resource Management");
-        assert_eq!(
-            items[0]["reasoning"],
-            "hugetlb_free_cross_zone_pages() runs before HVO init"
-        );
-    }
-
-    #[test]
-    fn test_append_stage_dismissed_concerns_normalizes_string_items() {
-        let mut items = Vec::new();
-        let input = vec![json!("suspected missing cleanup does not apply")];
-
-        append_stage_dismissed_concerns(&mut items, &input, "implementation");
-
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["source_stage"], "implementation");
-        assert_eq!(items[0]["type"], "General");
-        assert_eq!(
-            items[0]["description"],
-            "suspected missing cleanup does not apply"
-        );
-    }
-
-    #[test]
-    fn test_append_stage_items_overwrites_existing_source_stage() {
-        let mut items = Vec::new();
-        let input = vec![json!({
-            "source_stage": "execution-flow",
-            "type": "Execution flow",
-            "description": "already annotated"
-        })];
-
-        append_stage_items(&mut items, &input, "resources", "General", "description");
-
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["source_stage"], "resources");
-    }
-
-    #[test]
-    fn test_append_stage_items_normalizes_string_items() {
-        let mut items = Vec::new();
-        let input = vec![json!("plain concern")];
-
-        append_stage_items(&mut items, &input, "security", "General", "description");
-
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["source_stage"], "security");
-        assert_eq!(items[0]["type"], "General");
-        assert_eq!(items[0]["description"], "plain concern");
-    }
-
-    #[test]
-    fn test_calculate_series_range_single_patch() {
-        let p = PatchInput {
-            index: 1,
-            diff: "".to_string(),
+    fn test_calculate_series_range() {
+        let make_patch = |index: i64, commit_id: Option<&str>| PatchInput {
+            index,
+            diff: String::new(),
             subject: None,
             author: None,
             date: None,
             message_id: None,
-            commit_id: Some("sha1".to_string()),
+            commit_id: commit_id.map(str::to_string),
         };
-        let patches = vec![p.clone()];
-        let patches_to_review = vec![p.clone()];
-        let patch_shas = std::collections::HashMap::new();
+        let p1 = make_patch(1, Some("sha1"));
+        let p2 = make_patch(2, Some("sha2"));
+        let empty_shas = std::collections::HashMap::new();
 
+        // Single patch has no follow-up range.
         assert_eq!(
-            calculate_series_range(&patches, &patches_to_review, &patch_shas, "base"),
+            calculate_series_range(
+                std::slice::from_ref(&p1),
+                std::slice::from_ref(&p1),
+                &empty_shas,
+                "base"
+            ),
             None
         );
-    }
 
-    #[test]
-    fn test_calculate_series_range_multi_patch_last() {
-        let p1 = PatchInput {
-            index: 1,
-            diff: "".to_string(),
-            subject: None,
-            author: None,
-            date: None,
-            message_id: None,
-            commit_id: Some("sha1".to_string()),
-        };
-        let p2 = PatchInput {
-            index: 2,
-            diff: "".to_string(),
-            subject: None,
-            author: None,
-            date: None,
-            message_id: None,
-            commit_id: Some("sha2".to_string()),
-        };
-        let patches = vec![p1.clone(), p2.clone()];
-        let patches_to_review = vec![p2.clone()]; // Reviewing last
-        let patch_shas = std::collections::HashMap::new();
-
+        // Reviewing the last patch in a multi-patch series has no follow-up range.
+        let two_patches = vec![p1.clone(), p2.clone()];
         assert_eq!(
-            calculate_series_range(&patches, &patches_to_review, &patch_shas, "base"),
+            calculate_series_range(&two_patches, std::slice::from_ref(&p2), &empty_shas, "base"),
             None
         );
-    }
 
-    #[test]
-    fn test_calculate_series_range_multi_patch_middle() {
-        let p1 = PatchInput {
-            index: 1,
-            diff: "".to_string(),
-            subject: None,
-            author: None,
-            date: None,
-            message_id: None,
-            commit_id: Some("sha1".to_string()),
-        };
-        let p2 = PatchInput {
-            index: 2,
-            diff: "".to_string(),
-            subject: None,
-            author: None,
-            date: None,
-            message_id: None,
-            commit_id: Some("sha2".to_string()),
-        };
-        let patches = vec![p1.clone(), p2.clone()];
-        let patches_to_review = vec![p1.clone()]; // Reviewing first
-        let patch_shas = std::collections::HashMap::new();
-
+        // Reviewing an earlier patch resolves the series end SHA from commit_id or patch_shas.
         assert_eq!(
-            calculate_series_range(&patches, &patches_to_review, &patch_shas, "base"),
+            calculate_series_range(&two_patches, std::slice::from_ref(&p1), &empty_shas, "base"),
             Some("base..sha2".to_string())
         );
-    }
 
-    #[test]
-    fn test_calculate_series_range_use_patch_shas_map() {
-        let p1 = PatchInput {
-            index: 1,
-            diff: "".to_string(),
-            subject: None,
-            author: None,
-            date: None,
-            message_id: None,
-            commit_id: None, // Missing in input
-        };
-        let p2 = PatchInput {
-            index: 2,
-            diff: "".to_string(),
-            subject: None,
-            author: None,
-            date: None,
-            message_id: None,
-            commit_id: None, // Missing in input
-        };
-        let patches = vec![p1.clone(), p2.clone()];
-        let patches_to_review = vec![p1.clone()];
-
+        let unresolved = vec![make_patch(1, None), make_patch(2, None)];
         let mut patch_shas = std::collections::HashMap::new();
         patch_shas.insert(2, "sha2_resolved".to_string());
-
         assert_eq!(
-            calculate_series_range(&patches, &patches_to_review, &patch_shas, "base"),
+            calculate_series_range(&unresolved, &unresolved[..1], &patch_shas, "base"),
             Some("base..sha2_resolved".to_string())
         );
     }
@@ -1227,64 +1056,25 @@ mod tests {
         }
     }
 
-    // ReviewError tests
-
     #[test]
-    fn test_limit_exceeded_classifies_as_fatal() {
-        let err = ReviewError::LimitExceeded;
+    fn test_review_error_classification_and_downcast() {
+        for err in [
+            ReviewError::LimitExceeded,
+            ReviewError::BudgetExceeded("1000 tokens used (limit: 500)".to_string()),
+            ReviewError::FormatRejection("contains markdown code blocks".to_string()),
+        ] {
+            assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
+            let boxed: anyhow::Error = err.into();
+            assert!(
+                boxed.downcast_ref::<ReviewError>().is_some(),
+                "ReviewError variants must downcast so retry loops fail fast"
+            );
+        }
 
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_budget_exceeded_classifies_as_fatal() {
-        let err = ReviewError::BudgetExceeded("1000 tokens used (limit: 500)".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_format_rejection_classifies_as_fatal() {
-        let err = ReviewError::FormatRejection("contains markdown code blocks".to_string());
-
-        assert_eq!(err.ai_error_class(), AiErrorClass::Fatal);
-    }
-
-    #[test]
-    fn test_limit_exceeded_downcasts_as_review_error() {
-        let err: anyhow::Error = ReviewError::LimitExceeded.into();
+        let generic: anyhow::Error = anyhow::anyhow!("transient JSON parse failure");
         assert!(
-            err.downcast_ref::<ReviewError>().is_some(),
-            "LimitExceeded must downcast to ReviewError so the retry loop can fail fast"
-        );
-    }
-
-    #[test]
-    fn test_budget_exceeded_downcasts_as_review_error() {
-        let err: anyhow::Error =
-            ReviewError::BudgetExceeded("1000 tokens used (limit: 500)".to_string()).into();
-        assert!(
-            err.downcast_ref::<ReviewError>().is_some(),
-            "BudgetExceeded must downcast to ReviewError so the retry loop can fail fast"
-        );
-    }
-
-    #[test]
-    fn test_generic_error_does_not_downcast_as_review_error() {
-        let err: anyhow::Error = anyhow::anyhow!("transient JSON parse failure");
-        assert!(
-            err.downcast_ref::<ReviewError>().is_none(),
-            "Plain anyhow errors must NOT match ReviewError so they remain retryable"
-        );
-    }
-
-    #[test]
-    fn test_format_rejection_downcasts_as_review_error() {
-        let err: anyhow::Error =
-            ReviewError::FormatRejection("contains markdown code blocks".to_string()).into();
-        assert!(
-            err.downcast_ref::<ReviewError>().is_some(),
-            "FormatRejection must downcast to ReviewError"
+            generic.downcast_ref::<ReviewError>().is_none(),
+            "plain anyhow errors must not match ReviewError so they remain retryable"
         );
     }
 
