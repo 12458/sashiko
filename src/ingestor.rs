@@ -1288,19 +1288,79 @@ index bbc440c93e08..1123ef3ccf90 100644
         );
     }
 
-    #[test]
-    fn test_watermark_clamp_when_ahead_of_server_tip() {
-        let current: u64 = 145742;
-        let high: u64 = 144382;
-        assert!(current > high);
-        let recovered = high.saturating_sub(100);
-        assert_eq!(recovered, 144282);
-        assert!(recovered < high);
+    #[tokio::test]
+    async fn test_watermark_clamp_when_ahead_of_server_tip() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::TcpListener;
 
-        // Underflow protection
-        let low_high: u64 = 50;
-        let low_recovered = low_high.saturating_sub(100);
-        assert_eq!(low_recovered, 0);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut fetched_per_cycle = Vec::new();
+            // Cycle 1: server high is 103 (below stored 500), so watermark clamps to 3 and fetches 4..=103.
+            // Cycle 2: server high is 0 (spool error), so watermark is preserved at 103 without fetching.
+            for high in [103u64, 0u64] {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut stream = BufReader::new(stream);
+                stream.get_mut().write_all(b"200 ready\r\n").await.unwrap();
+                let mut articles = Vec::new();
+                loop {
+                    let mut command = String::new();
+                    stream.read_line(&mut command).await.unwrap();
+                    let response = if command.starts_with("GROUP ") {
+                        format!("211 {high} 1 {high} test.group\r\n")
+                    } else if let Some(article) = command.trim().strip_prefix("ARTICLE ") {
+                        articles.push(article.parse::<u64>().unwrap());
+                        "220 article follows\r\nSubject: test\r\n.\r\n".into()
+                    } else {
+                        assert_eq!(command.trim(), "QUIT");
+                        stream.get_mut().write_all(b"205 bye\r\n").await.unwrap();
+                        break;
+                    };
+                    stream
+                        .get_mut()
+                        .write_all(response.as_bytes())
+                        .await
+                        .unwrap();
+                }
+                fetched_per_cycle.push(articles);
+            }
+            fetched_per_cycle
+        });
+
+        let mut settings = Settings::new().unwrap();
+        settings.nntp.server = address.ip().to_string();
+        settings.nntp.port = address.port();
+        settings.mailing_lists.track = vec!["test:test.group".into()];
+        settings.database.url = ":memory:".into();
+        let db = Arc::new(Database::new(&settings.database).await.unwrap());
+        db.migrate().await.unwrap();
+        db.ensure_mailing_list("test", "test.group").await.unwrap();
+        db.update_last_article_num("test.group", 500).await.unwrap();
+
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(100);
+        let consumer = tokio::spawn(async move {
+            while let Some(Event::ArticleFetched {
+                receipt: Some(mut receipt),
+                ..
+            }) = receiver.recv().await
+            {
+                receipt.settle();
+            }
+        });
+
+        let ingestor = Ingestor::new(settings, db.clone(), sender, None, true);
+        ingestor.process_nntp_cycle().await.unwrap();
+        assert_eq!(db.get_last_article_num("test.group").await.unwrap(), 103);
+
+        ingestor.process_nntp_cycle().await.unwrap();
+        assert_eq!(db.get_last_article_num("test.group").await.unwrap(), 103);
+
+        let fetched = server.await.unwrap();
+        assert_eq!(fetched[0], (4..=103).collect::<Vec<_>>());
+        assert!(fetched[1].is_empty());
+        drop(ingestor);
+        consumer.await.unwrap();
     }
 
     #[tokio::test]
