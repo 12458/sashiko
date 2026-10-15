@@ -28,7 +28,7 @@ Verify `Settings.toml` has your LLM provider configured:
 ```toml
 [ai]
 provider = "gemini"  # or "claude"
-model = "gemini-3.1-pro-preview"  # or "claude-sonnet-4-6"
+model = "gemini-4-argon"  # or "claude-sonnet-4-6"
 ```
 
 ### Step 2: Start Sashiko Server

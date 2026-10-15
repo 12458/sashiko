@@ -129,6 +129,8 @@ spec:
               value: "/mnt/worktrees"
             - name: SASHIKO__REVIEW__CONCURRENCY
               value: "12"
+            - name: SASHIKO__REVIEW__EFFORT
+              value: "dynamic"
             - name: SASHIKO__SERVER__PORT
               value: "8080"
             # Sign-in links are mailed, so the service has to know the URL it
@@ -138,7 +140,7 @@ spec:
             - name: SASHIKO__SERVER__ACL__ADMINS
               value: "roman.gushchin@linux.dev"
             - name: SASHIKO__AI__MODEL
-              value: "gemini-3.1-pro-preview"
+              value: "gemini-4-argon"
             - name: SASHIKO__AI__MAX_INTERACTIONS
               value: "100"
             # Pull requests arrive over the forge webhook rather than NNTP,

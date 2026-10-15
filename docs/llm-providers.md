@@ -19,14 +19,14 @@ export LLM_API_KEY="your-gemini-api-key"
 ```
 
 The example file sets `provider = "gemini"` and
-`model = "gemini-3.1-pro-preview"`. Adjust the model name as needed.
+`model = "gemini-4-argon"`. Adjust the model name as needed.
 
 You can also set any config value via environment variables using the
 `SASHIKO` prefix with `__` (double underscore) as the separator:
 
 ```bash
 export SASHIKO__AI__PROVIDER=gemini
-export SASHIKO__AI__MODEL=gemini-3.1-pro-preview
+export SASHIKO__AI__MODEL=gemini-4-argon
 ```
 
 ## Claude (API)

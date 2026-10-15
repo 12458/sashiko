@@ -124,11 +124,13 @@ spec:
             - name: SASHIKO__PROJECT__DOMAIN
               value: "sashiko.dev"
             - name: SASHIKO__AI__MODEL
-              value: "gemini-3.1-pro-preview"
+              value: "gemini-4-argon"
             - name: SASHIKO__AI__MAX_INTERACTIONS
               value: "100"
             - name: SASHIKO__REVIEW__CONCURRENCY
               value: "24"
+            - name: SASHIKO__REVIEW__EFFORT
+              value: "dynamic"
             - name: SASHIKO__LINUX_BUG__ENABLED
               value: "true"
             - name: SASHIKO__LINUX_BUG__FIX_CHECK_ENABLED

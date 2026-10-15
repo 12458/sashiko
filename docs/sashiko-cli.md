@@ -307,7 +307,7 @@ If you only want to run local reviews, the minimum configuration is:
 ```toml
 [ai]
 provider = "gemini"                    # or "claude", "claude-cli", etc.
-model = "gemini-3.1-pro-preview"
+model = "gemini-4-argon"
 
 [git]
 repository_path = "/path/to/your/kernel/tree"
