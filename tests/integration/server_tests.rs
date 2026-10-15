@@ -118,56 +118,38 @@ async fn spawn_test_server(read_only: bool) -> TestServer {
 // ── Smoke Tests ─────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_stats_endpoint_returns_ok() {
+async fn test_empty_db_smoke_endpoints() {
     let server = spawn_test_server(false).await;
-    let resp = reqwest::get(format!("{}/api/stats", server.base_url))
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{}/api/stats", server.base_url))
+        .send()
         .await
         .unwrap();
-
     assert_eq!(resp.status(), 200);
-
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "ok");
     assert!(body["version"].is_string());
-}
 
-#[tokio::test]
-async fn test_patchsets_empty_on_fresh_db() {
-    let server = spawn_test_server(false).await;
-    let resp = reqwest::get(format!("{}/api/patchsets", server.base_url))
+    for endpoint in ["patchsets", "messages"] {
+        let resp = client
+            .get(format!("{}/api/{endpoint}", server.base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["total"], 0);
+        assert!(body["items"].as_array().unwrap().is_empty());
+    }
+
+    let resp = client
+        .get(format!("{}/api/lists", server.base_url))
+        .send()
         .await
         .unwrap();
-
     assert_eq!(resp.status(), 200);
-
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["total"], 0);
-    assert!(body["items"].as_array().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn test_messages_empty_on_fresh_db() {
-    let server = spawn_test_server(false).await;
-    let resp = reqwest::get(format!("{}/api/messages", server.base_url))
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["total"], 0);
-    assert!(body["items"].as_array().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn test_lists_empty_on_fresh_db() {
-    let server = spawn_test_server(false).await;
-    let resp = reqwest::get(format!("{}/api/lists", server.base_url))
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-
     let body: serde_json::Value = resp.json().await.unwrap();
     assert!(body.as_array().unwrap().is_empty());
 }
@@ -207,34 +189,70 @@ index 1a2b3c4d5e6f..7a8b9c0d1e2f 100644
 ";
 
 #[tokio::test]
-async fn test_submit_inject_accepted() {
+async fn test_submit_inject_validation_and_acceptance() {
     let mut server = spawn_test_server(false).await;
-
     let client = reqwest::Client::new();
+
+    // 1. Reject payloads without a valid mbox header.
+    let resp = client
+        .post(format!("{}/api/submit", server.base_url))
+        .json(&serde_json::json!({
+            "type": "inject",
+            "raw": "this is not an mbox",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    // 2. Reject baselines that are not 40-hex-digit commit IDs.
+    for baseline in [
+        "v6.7-rc2",
+        "origin/master",
+        "1234567",
+        "--upload-pack=sh",
+        "1234567890ABCDEF1234567890ABCDEF12345678",
+        "1234567890abcdef1234567890abcdef12345678\nbase-commit: x",
+    ] {
+        let resp = client
+            .post(format!("{}/api/submit", server.base_url))
+            .json(&serde_json::json!({
+                "type": "inject",
+                "raw": SAMPLE_MBOX,
+                "base_commit": baseline,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400, "baseline {baseline:?} was accepted");
+    }
+
+    // 3. Accept a valid inject request and enqueue Event::RawMboxSubmitted.
     let resp = client
         .post(format!("{}/api/submit", server.base_url))
         .json(&serde_json::json!({
             "type": "inject",
             "raw": SAMPLE_MBOX,
+            "base_commit": "1234567890abcdef1234567890abcdef12345678",
         }))
         .send()
         .await
         .unwrap();
-
     assert_eq!(resp.status(), 200);
-
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "accepted");
 
-    // The server should have enqueued an Event::RawMboxSubmitted on the channel.
     let event = server
         .event_rx
         .try_recv()
         .expect("expected an event on the channel");
-
     match event {
-        Event::RawMboxSubmitted { raw, .. } => {
+        Event::RawMboxSubmitted { raw, baseline, .. } => {
             assert!(raw.contains("[PATCH] mm/slub"));
+            assert_eq!(
+                baseline.as_deref(),
+                Some("1234567890abcdef1234567890abcdef12345678")
+            );
         }
         other => panic!("expected RawMboxSubmitted, got {other:?}"),
     }
@@ -259,76 +277,13 @@ async fn test_submit_rejected_in_read_only_mode() {
     assert_eq!(resp.status(), 403);
 }
 
-#[tokio::test]
-async fn test_submit_rejects_empty_mbox() {
-    let server = spawn_test_server(false).await;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/api/submit", server.base_url))
-        .json(&serde_json::json!({
-            "type": "inject",
-            "raw": "this is not an mbox",
-        }))
-        .send()
-        .await
-        .unwrap();
-
-    // The server should reject payloads without a valid mbox header.
-    assert_eq!(resp.status(), 400);
-}
-
-#[tokio::test]
-async fn test_submit_rejects_a_baseline_that_is_not_a_commit_id() {
-    let server = spawn_test_server(false).await;
-    let client = reqwest::Client::new();
-
-    for baseline in [
-        "v6.7-rc2",
-        "origin/master",
-        "1234567",
-        "--upload-pack=sh",
-        "1234567890ABCDEF1234567890ABCDEF12345678",
-        "1234567890abcdef1234567890abcdef12345678\nbase-commit: x",
-    ] {
-        let resp = client
-            .post(format!("{}/api/submit", server.base_url))
-            .json(&serde_json::json!({
-                "type": "inject",
-                "raw": SAMPLE_MBOX,
-                "base_commit": baseline,
-            }))
-            .send()
-            .await
-            .unwrap();
-
-        // A baseline that names no commit would be resolved as a ref, or
-        // reach git and the review log verbatim.
-        assert_eq!(resp.status(), 400, "baseline {baseline:?} was accepted");
-    }
-
-    let resp = client
-        .post(format!("{}/api/submit", server.base_url))
-        .json(&serde_json::json!({
-            "type": "inject",
-            "raw": SAMPLE_MBOX,
-            "base_commit": "1234567890abcdef1234567890abcdef12345678",
-        }))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-}
-
 // ── Database-Backed Query Tests ─────────────────────────────────────────
 
 #[tokio::test]
-async fn test_patchsets_returned_after_insert() {
+async fn test_patchset_message_and_review_query_endpoints() {
     let server = spawn_test_server(false).await;
+    let client = reqwest::Client::new();
 
-    // Insert a patchset directly via the DB so we can query it via HTTP.
-    // The patchsets table requires subject/author/date for get_patchsets to return rows.
     server
         .db
         .conn
@@ -344,8 +299,8 @@ async fn test_patchsets_returned_after_insert() {
         .db
         .conn
         .execute(
-            "INSERT INTO messages (message_id, subject, author, date) \
-             VALUES ('<integ-1@example.com>', '[PATCH] test patch', 'Author <a@b.com>', 1234567890)",
+            "INSERT INTO messages (message_id, subject, author, date, body) \
+             VALUES ('<integ-1@example.com>', 'Test Subject', 'Author <a@b.com>', 1234567890, 'Test body')",
             (),
         )
         .await
@@ -362,51 +317,57 @@ async fn test_patchsets_returned_after_insert() {
         .await
         .unwrap();
 
-    let resp = reqwest::get(format!("{}/api/patchsets", server.base_url))
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["total"], 1);
-
-    let items = body["items"].as_array().unwrap();
-    assert_eq!(items.len(), 1);
-}
-
-#[tokio::test]
-async fn test_message_details_via_api() {
-    let server = spawn_test_server(false).await;
-
+    let logs_json = "[{\"role\":\"user\",\"content\":\"test prompt\"}]";
     server
         .db
         .conn
         .execute(
-            "INSERT INTO messages (message_id, subject, author, date, body) \
-             VALUES ('<detail-1@example.com>', 'Test Subject', 'Author <a@b.com>', 1234567890, 'Test body')",
+            &format!(
+                "INSERT INTO reviews (id, patchset_id, status, logs, created_at) \
+                 VALUES (1, 1, 'Reviewed', '{logs_json}', 1234567890)"
+            ),
             (),
         )
         .await
         .unwrap();
 
-    let resp = reqwest::get(format!(
-        "{}/api/message?id=<detail-1@example.com>",
-        server.base_url
-    ))
-    .await
-    .unwrap();
-
+    let resp = client
+        .get(format!("{}/api/patchsets", server.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
 
+    let resp = client
+        .get(format!(
+            "{}/api/message?id=<integ-1@example.com>",
+            server.base_url
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["subject"], "Test Subject");
     assert_eq!(body["body"], "Test body");
+
+    let resp = client
+        .get(format!("{}/api/review?id=1", server.base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["logs"].as_str().unwrap(), logs_json);
 }
 
 #[tokio::test]
-async fn test_stats_reviews_endpoint() {
+async fn test_stats_reviews_and_tools_endpoints() {
     let server = spawn_test_server(false).await;
+    let client = reqwest::Client::new();
 
     server
         .db
@@ -419,40 +380,52 @@ async fn test_stats_reviews_endpoint() {
         .await
         .unwrap();
 
-    // Insert 1005 reviews.
-    // 5 Failed first, then 1000 Reviewed.
+    // Insert 1005 reviews (5 Failed first, then 1000 Reviewed) and tool usages in bulk.
     let tx = server.db.begin_immediate_transaction().await.unwrap();
-    for i in 1..=5 {
-        tx.execute(
-            &format!("INSERT INTO reviews (id, patchset_id, status, created_at) VALUES ({}, 1, 'Failed', {})", i, 1234567890 + i),
-            ()
-        ).await.unwrap();
-    }
-    for i in 6..=1005 {
-        let int_id = format!("int-{}", i);
-        tx.execute(
-            &format!("INSERT INTO ai_interactions (id, tokens_in, tokens_out, tokens_cached) VALUES ('{}', 10, 20, 5)", int_id),
-            ()
-        ).await.unwrap();
-
-        tx.execute(
-            &format!("INSERT INTO reviews (id, patchset_id, status, interaction_id, created_at) VALUES ({}, 1, 'Reviewed', '{}', {})", i, int_id, 1234567890 + i),
-            ()
-        ).await.unwrap();
-    }
+    tx.execute(
+        "WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM cnt WHERE x < 5)
+         INSERT INTO reviews (id, patchset_id, status, created_at)
+         SELECT x, 1, 'Failed', 1234567890 + x FROM cnt",
+        (),
+    )
+    .await
+    .unwrap();
+    tx.execute(
+        "WITH RECURSIVE cnt(x) AS (SELECT 6 UNION ALL SELECT x + 1 FROM cnt WHERE x < 1005)
+         INSERT INTO ai_interactions (id, tokens_in, tokens_out, tokens_cached)
+         SELECT 'int-' || x, 10, 20, 5 FROM cnt",
+        (),
+    )
+    .await
+    .unwrap();
+    tx.execute(
+        "WITH RECURSIVE cnt(x) AS (SELECT 6 UNION ALL SELECT x + 1 FROM cnt WHERE x < 1005)
+         INSERT INTO reviews (id, patchset_id, status, interaction_id, created_at)
+         SELECT x, 1, 'Reviewed', 'int-' || x, 1234567890 + x FROM cnt",
+        (),
+    )
+    .await
+    .unwrap();
+    tx.execute(
+        "INSERT INTO tool_usages (review_id, tool_name, output_length)
+         SELECT id, CASE WHEN id <= 5 THEN 'old_tool' ELSE 'new_tool' END,
+                CASE WHEN id <= 5 THEN 100 ELSE 200 END
+         FROM reviews WHERE id <= 10",
+        (),
+    )
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
 
-    let resp = reqwest::get(format!("{}/api/stats/reviews", server.base_url))
+    let resp = client
+        .get(format!("{}/api/stats/reviews", server.base_url))
+        .send()
         .await
         .unwrap();
-
     assert_eq!(resp.status(), 200);
-
     let body: serde_json::Value = resp.json().await.unwrap();
-
     assert_eq!(body["total_reviews"], 1005);
     assert_eq!(body["total_failures"], 5);
-
     let reviews = body["reviews"].as_array().unwrap();
     assert_eq!(reviews.len(), 1);
     let group = &reviews[0];
@@ -461,57 +434,15 @@ async fn test_stats_reviews_endpoint() {
     assert_eq!(group["tokens_in"], 10000);
     assert_eq!(group["tokens_out"], 20000);
     assert_eq!(group["tokens_cached"], 5000);
-}
 
-#[tokio::test]
-async fn test_stats_tools_endpoint() {
-    let server = spawn_test_server(false).await;
-
-    server
-        .db
-        .conn
-        .execute(
-            "INSERT INTO patchsets (id, status, subject, author, date) \
-             VALUES (1, 'Pending', '[PATCH] test patch', 'Author <a@b.com>', 1234567890)",
-            (),
-        )
+    let resp = client
+        .get(format!("{}/api/stats/tools", server.base_url))
+        .send()
         .await
         .unwrap();
-
-    let tx = server.db.begin_immediate_transaction().await.unwrap();
-    for i in 1..=1005 {
-        tx.execute(
-            &format!("INSERT INTO reviews (id, patchset_id, status, created_at) VALUES ({}, 1, 'Reviewed', {})", i, 1234567890 + i),
-            ()
-        ).await.unwrap();
-    }
-
-    // Tool usages for reviews 1..5 (should be excluded)
-    for i in 1..=5 {
-        tx.execute(
-            &format!("INSERT INTO tool_usages (review_id, tool_name, output_length) VALUES ({}, 'old_tool', 100)", i),
-            ()
-        ).await.unwrap();
-    }
-
-    // Tool usages for reviews 6..10 (should be included)
-    for i in 6..=10 {
-        tx.execute(
-            &format!("INSERT INTO tool_usages (review_id, tool_name, output_length) VALUES ({}, 'new_tool', 200)", i),
-            ()
-        ).await.unwrap();
-    }
-    tx.commit().await.unwrap();
-
-    let resp = reqwest::get(format!("{}/api/stats/tools", server.base_url))
-        .await
-        .unwrap();
-
     assert_eq!(resp.status(), 200);
-
     let body: serde_json::Value = resp.json().await.unwrap();
     let tools = body.as_array().unwrap();
-
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0]["tool"], "new_tool");
     assert_eq!(tools[0]["count"], 5);
@@ -529,75 +460,24 @@ async fn test_redirect_www_to_non_www() {
         .build()
         .unwrap();
 
-    let resp = client
-        .get(&server.base_url)
-        .header("Host", "www.sashiko.dev")
-        .send()
-        .await
-        .unwrap();
+    for (path, expected_location) in [
+        ("", "https://sashiko.dev/"),
+        (
+            "/api/stats?foo=bar",
+            "https://sashiko.dev/api/stats?foo=bar",
+        ),
+    ] {
+        let resp = client
+            .get(format!("{}{path}", server.base_url))
+            .header("Host", "www.sashiko.dev")
+            .send()
+            .await
+            .unwrap();
 
-    assert_eq!(resp.status(), 308);
-    assert_eq!(
-        resp.headers().get("Location").unwrap().to_str().unwrap(),
-        "https://sashiko.dev/"
-    );
-}
-
-#[tokio::test]
-async fn test_redirect_www_to_non_www_with_path_and_query() {
-    let server = spawn_test_server(false).await;
-
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .unwrap();
-
-    let resp = client
-        .get(format!("{}/api/stats?foo=bar", server.base_url))
-        .header("Host", "www.sashiko.dev")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 308);
-    assert_eq!(
-        resp.headers().get("Location").unwrap().to_str().unwrap(),
-        "https://sashiko.dev/api/stats?foo=bar"
-    );
-}
-
-#[tokio::test]
-async fn test_review_endpoint_returns_logs() {
-    let server = spawn_test_server(false).await;
-
-    server
-        .db
-        .conn
-        .execute(
-            "INSERT INTO patchsets (id, status, subject, author, date) \
-             VALUES (1, 'Pending', '[PATCH] test patch', 'Author <a@b.com>', 1234567890)",
-            (),
-        )
-        .await
-        .unwrap();
-
-    let logs_json = "[{\"role\":\"user\",\"content\":\"test prompt\"}]";
-    server
-        .db
-        .conn
-        .execute(
-            &format!("INSERT INTO reviews (id, patchset_id, status, logs, created_at) VALUES (1, 1, 'Reviewed', '{}', 1234567890)", logs_json),
-            (),
-        )
-        .await
-        .unwrap();
-
-    let resp = reqwest::get(format!("{}/api/review?id=1", server.base_url))
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["logs"].as_str().unwrap(), logs_json);
+        assert_eq!(resp.status(), 308);
+        assert_eq!(
+            resp.headers().get("Location").unwrap().to_str().unwrap(),
+            expected_location
+        );
+    }
 }

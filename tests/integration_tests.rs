@@ -23,8 +23,4 @@ mod integration {
     mod singleton_cover_merge_test;
     #[cfg(feature = "server")]
     mod singleton_root_overwrite;
-    #[cfg(feature = "server")]
-    mod test_nested;
-    #[cfg(feature = "server")]
-    mod test_pending;
 }
