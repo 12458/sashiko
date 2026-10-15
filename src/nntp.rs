@@ -33,7 +33,10 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 type NntpStream = Either<TcpStream, TlsStream<TcpStream>>;
 
 pub struct NntpClient {
-    stream: BufReader<NntpStream>,
+    /// Taken during each timed read or write and only restored on
+    /// success, so a timed-out or failed operation drops the socket and
+    /// cannot leave a half-written or desynchronized stream behind.
+    stream: Option<BufReader<NntpStream>>,
     timeout: Duration,
 }
 
@@ -135,6 +138,9 @@ impl NntpClient {
         let tcp = timeout(DEFAULT_TIMEOUT, TcpStream::connect((host, port)))
             .await
             .map_err(|_| anyhow!("Connection timed out"))??;
+        if let Err(e) = tcp.set_nodelay(true) {
+            debug!("Failed to set TCP_NODELAY on NNTP socket: {}", e);
+        }
 
         let stream = match tls_config {
             Some(config) => {
@@ -165,32 +171,47 @@ impl NntpClient {
 
         debug!("Connected: {}", response);
         Ok(Self {
-            stream: reader,
+            stream: Some(reader),
             timeout: DEFAULT_TIMEOUT,
         })
     }
 
     async fn read_line_with_timeout(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
-        timeout(self.timeout, self.stream.read_until(b'\n', buf))
-            .await
-            .map_err(|_| anyhow!("Read timed out"))?
-            .map_err(|e| e.into())
-    }
-
-    async fn write_all_with_timeout(&mut self, bytes: &[u8]) -> Result<()> {
-        timeout(self.timeout, self.stream.write_all(bytes))
-            .await
-            .map_err(|_| anyhow!("Write timed out"))?
-            .map_err(|e| e.into())
+        let mut stream = self
+            .stream
+            .take()
+            .ok_or_else(|| anyhow!("NNTP connection closed after prior I/O error or timeout"))?;
+        match timeout(self.timeout, stream.read_until(b'\n', buf)).await {
+            Ok(Ok(n)) => {
+                self.stream = Some(stream);
+                Ok(n)
+            }
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(anyhow!("Read timed out")),
+        }
     }
 
     async fn send_command(&mut self, command: &str) -> Result<()> {
-        self.write_all_with_timeout(command.as_bytes()).await?;
-        self.write_all_with_timeout(b"\r\n").await?;
-        timeout(self.timeout, self.stream.flush())
-            .await
-            .map_err(|_| anyhow!("Flush timed out"))??;
-        Ok(())
+        let mut stream = self
+            .stream
+            .take()
+            .ok_or_else(|| anyhow!("NNTP connection closed after prior I/O error or timeout"))?;
+        let mut frame = Vec::with_capacity(command.len() + 2);
+        frame.extend_from_slice(command.as_bytes());
+        frame.extend_from_slice(b"\r\n");
+        let res = timeout(self.timeout, async {
+            stream.get_mut().write_all(&frame).await?;
+            stream.get_mut().flush().await
+        })
+        .await;
+        match res {
+            Ok(Ok(())) => {
+                self.stream = Some(stream);
+                Ok(())
+            }
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(anyhow!("Write timed out")),
+        }
     }
 
     async fn read_response(&mut self) -> Result<String> {
@@ -299,20 +320,25 @@ impl NntpClient {
     }
 
     pub async fn quit(&mut self) -> Result<()> {
+        if self.stream.is_none() {
+            return Ok(());
+        }
         self.send_command("QUIT").await?;
         let response = self.read_response().await?;
 
         if !response.starts_with("205") {
             debug!("QUIT response was not 205: {}", response);
         }
-        // Dropping a TlsStream sends no close_notify; only shutdown
-        // does. Either forwards poll_shutdown to whichever side it holds.
-        // The close_notify is a write, so a peer that has stopped
-        // reading can stall it like any other.
-        match timeout(self.timeout, self.stream.get_mut().shutdown()).await {
-            Ok(Err(e)) => debug!("Shutdown after QUIT failed: {}", e),
-            Err(_) => debug!("Shutdown after QUIT timed out"),
-            Ok(Ok(())) => {}
+        if let Some(mut stream) = self.stream.take() {
+            // Dropping a TlsStream sends no close_notify; only shutdown
+            // does. Either forwards poll_shutdown to whichever side it holds.
+            // The close_notify is a write, so a peer that has stopped
+            // reading can stall it like any other.
+            match timeout(self.timeout, stream.get_mut().shutdown()).await {
+                Ok(Err(e)) => debug!("Shutdown after QUIT failed: {}", e),
+                Err(_) => debug!("Shutdown after QUIT timed out"),
+                Ok(Ok(())) => {}
+            }
         }
         Ok(())
     }
