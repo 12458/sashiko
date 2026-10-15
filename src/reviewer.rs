@@ -4232,57 +4232,38 @@ fi
     }
 
     #[tokio::test]
-    async fn test_prepare_baseline_logs_only_classified_git_am_errors() -> Result<()> {
+    async fn test_prepare_baseline_stale_head_and_error_classification() -> Result<()> {
         let root = tempdir()?;
         let repo = stale_head_fixture(root.path());
         let ctx = stale_head_context(root.path(), &repo).await?;
-        let diff = "diff --git a/missing-token=stderr-secret.txt b/missing-token=stderr-secret.txt\n\
-                    --- a/missing-token=stderr-secret.txt\n\
-                    +++ b/missing-token=stderr-secret.txt\n\
-                    @@ -1 +1 @@\n-old\n+new\n";
-        assert_baseline_failure_log(&ctx, diff, "A required file is missing from the index.").await
-    }
+        let candidates = stale_head_candidates(&repo);
 
-    #[tokio::test]
-    async fn test_prepare_baseline_unknown_errors_do_not_publish_output() -> Result<()> {
-        let root = tempdir()?;
-        let repo = stale_head_fixture(root.path());
-        let ctx = stale_head_context(root.path(), &repo).await?;
-        let hook = repo.join(".git/hooks/applypatch-msg");
-        crate::test_support::write_executable_script(
-            &hook,
-            "#!/bin/sh\nprintf '%s\\n' 'private stdout'\n\
-             printf '%s\\n' 'private stderr <script>example</script>' >&2\nexit 1\n",
-        );
-        let diff = "diff --git a/mainline.txt b/mainline.txt\n\
-                    --- a/mainline.txt\n\
-                    +++ b/mainline.txt\n\
-                    @@ -1 +1 @@\n-new\n+newer\n";
-        assert_baseline_failure_log(&ctx, diff, "Unrecognized patch application failure.").await
-    }
+        // 1. Classified git-am errors log only the sanitized category message.
+        let missing_diff = "diff --git a/missing-token=stderr-secret.txt b/missing-token=stderr-secret.txt\n\
+                            --- a/missing-token=stderr-secret.txt\n\
+                            +++ b/missing-token=stderr-secret.txt\n\
+                            @@ -1 +1 @@\n-old\n+new\n";
+        assert_baseline_failure_log(
+            &ctx,
+            missing_diff,
+            "A required file is missing from the index.",
+        )
+        .await?;
 
-    #[tokio::test]
-    async fn test_merged_default_head_is_tried_after_mainline() -> Result<()> {
-        // tytso/ext4.git: HEAD is a master mainline passed years ago,
-        // and the patch applies there as well as to mainline.
-        let root = tempdir()?;
-        let repo = stale_head_fixture(root.path());
-        let ctx = stale_head_context(root.path(), &repo).await?;
-        let diff = "diff --git a/shared.txt b/shared.txt\n\
-                    --- a/shared.txt\n\
-                    +++ b/shared.txt\n\
-                    @@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
-
+        // 2. A merged default HEAD (stale/HEAD) is deferred behind mainline (origin/master).
+        let shared_diff = "diff --git a/shared.txt b/shared.txt\n\
+                           --- a/shared.txt\n\
+                           +++ b/shared.txt\n\
+                           @@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
         let (chosen, _, logs) = Reviewer::prepare_baseline_worktree(
             &ctx,
             1,
-            &stale_head_candidates(&repo),
-            &one_patch(diff),
+            &candidates,
+            &one_patch(shared_diff),
             None,
             None,
         )
         .await;
-
         let (_, worktree, _) = chosen.expect("mainline should apply");
         assert_eq!(
             attempt_statuses(&logs),
@@ -4292,30 +4273,21 @@ fi
             ]
         );
         worktree.remove().await?;
-        Ok(())
-    }
 
-    #[tokio::test]
-    async fn test_merged_default_head_is_still_tried_last() -> Result<()> {
-        // A series that applies only to the merged HEAD is still reviewed.
-        let root = tempdir()?;
-        let repo = stale_head_fixture(root.path());
-        let ctx = stale_head_context(root.path(), &repo).await?;
-        let diff = "diff --git a/mainline.txt b/mainline.txt\n\
-                    --- a/mainline.txt\n\
-                    +++ b/mainline.txt\n\
-                    @@ -1 +1 @@\n-old\n+older\n";
-
+        // 3. A series that applies only to the merged default HEAD is still tried last.
+        let stale_only_diff = "diff --git a/mainline.txt b/mainline.txt\n\
+                               --- a/mainline.txt\n\
+                               +++ b/mainline.txt\n\
+                               @@ -1 +1 @@\n-old\n+older\n";
         let (chosen, _, logs) = Reviewer::prepare_baseline_worktree(
             &ctx,
             1,
-            &stale_head_candidates(&repo),
-            &one_patch(diff),
+            &candidates,
+            &one_patch(stale_only_diff),
             None,
             None,
         )
         .await;
-
         let (_, worktree, _) = chosen.expect("the merged HEAD should apply");
         assert_eq!(
             attempt_statuses(&logs),
@@ -4337,7 +4309,19 @@ fi
         assert!(applied_log.ends_with("Application successful.\n"));
         assert!(!applied_log.contains("Patch application error:"));
         worktree.remove().await?;
-        Ok(())
+
+        // 4. Unrecognized git-am hook failures do not leak private stdout/stderr.
+        let hook = repo.join(".git/hooks/applypatch-msg");
+        crate::test_support::write_executable_script(
+            &hook,
+            "#!/bin/sh\nprintf '%s\\n' 'private stdout'\n\
+             printf '%s\\n' 'private stderr <script>example</script>' >&2\nexit 1\n",
+        );
+        let tip_diff = "diff --git a/mainline.txt b/mainline.txt\n\
+                        --- a/mainline.txt\n\
+                        +++ b/mainline.txt\n\
+                        @@ -1 +1 @@\n-new\n+newer\n";
+        assert_baseline_failure_log(&ctx, tip_diff, "Unrecognized patch application failure.").await
     }
 
     #[tokio::test]
