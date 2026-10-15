@@ -4579,12 +4579,13 @@ fi
 
         // Mock binary: sends two consecutive AI requests then a final result.
         let mock_script = r#"#!/bin/bash
-read -r input
+read -r input || exit 1
 echo '{"type": "ai_request", "payload": {"messages": [{"role": "user", "content": "first"}], "temperature": 0.5}}'
-read -r ai_response
+read -r ai_response || exit 1
+case "$ai_response" in *'"type":"error"'*) while read -r _; do :; done; exit 1 ;; esac
 echo '{"type": "ai_request", "payload": {"messages": [{"role": "user", "content": "second"}], "temperature": 0.5}}'
-read -r ai_response
-sleep 1  # make less sensitive to race condition
+read -r ai_response || exit 1
+case "$ai_response" in *'"type":"error"'*) while read -r _; do :; done; exit 1 ;; esac
 echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
 "#;
         crate::test_support::write_executable_script(&bin_path, mock_script);
