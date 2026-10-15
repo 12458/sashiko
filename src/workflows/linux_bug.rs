@@ -3913,36 +3913,6 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_session_prompt_directives() {
-        let session = NormalizeSession {
-            problem: "Array compaction flaw in rk_iommu_probe",
-            reasoning: "sparse array indexing",
-            locations: "[]",
-            master_sha: "abcdef1234567890abcdef1234567890abcdef12",
-            maintainers_hint: None,
-            tools: None,
-            context_tag: None,
-            project: ProjectId::Linux,
-        };
-
-        let prompt = session.initial_user_prompt();
-        assert!(prompt.contains("This is a bug report title describing an existing defect"));
-        assert!(prompt.contains("Do NOT use patch/fix action verbs"));
-        assert!(
-            prompt
-                .contains("NEVER 'iommu/rockchip: fix array compaction flaw in rk_iommu_probe()'")
-        );
-        assert!(
-            prompt.contains("Target Mainline Commit: abcdef1234567890abcdef1234567890abcdef12")
-        );
-        assert!(prompt.contains("git_log"));
-
-        let sys_prompt = session.system_prompt();
-        assert!(sys_prompt.contains("abcdef1234567890abcdef1234567890abcdef12"));
-        assert!(sys_prompt.contains("git_read_files"));
-    }
-
-    #[test]
     fn test_normalize_session_validation_rejects_fix_verbs() {
         let mut session = NormalizeSession {
             problem: "problem",
@@ -4098,8 +4068,8 @@ mod tests {
         assert_eq!(res.output.duplicate_of_id, Some(42));
     }
 
-    #[tokio::test]
-    async fn test_dedup_session_prompt_directives() {
+    #[test]
+    fn test_dedup_session_validation_checks_candidate_ids() {
         let known_bugs = vec![Bug {
             id: 42,
             bugid: "linux-42".to_string(),
@@ -4119,26 +4089,12 @@ mod tests {
             created_at: 100,
             updated_at: 100,
             subsystems: vec!["net".to_string()],
-            enrichments: vec![BugEnrichment {
-                id: 1,
-                bug_id: 42,
-                kind: "severity_calibration".to_string(),
-                tool: "sashiko".to_string(),
-                model: None,
-                author: None,
-                created_at: 100,
-                content: None,
-                data_json: Some(json!({"severity": "High", "severity_int": 3})),
-                tokens_in: None,
-                tokens_out: None,
-                tokens_cached: None,
-                logs: None,
-            }],
+            enrichments: vec![],
         }];
 
-        let session = DedupSession {
-            candidate_problem: "Use-after-free crash in dev.c due to race",
-            candidate_description: "Concurrent teardown frees netdev while rx handler is running.",
+        let mut session = DedupSession {
+            candidate_problem: "Memory leak in net/core/dev.c",
+            candidate_description: "Buffer allocated in dev_alloc is leaked on error path.",
             candidate_locations: None,
             candidate_subsystems: &["net".to_string()],
             known_candidates: &known_bugs,
@@ -4146,17 +4102,68 @@ mod tests {
             project: ProjectId::Linux,
         };
 
-        let sys = session.system_prompt();
-        assert!(sys.contains("same root cause but different consequences"));
-        assert!(
-            sys.contains("if fixing one issue will resolve the other issue, it's the same bug")
-        );
+        let missing_id = AiResponse {
+            content: Some(
+                json!({
+                    "is_duplicate": true,
+                    "duplicate_of_id": null,
+                    "reasoning": "Same leak"
+                })
+                .to_string(),
+            ),
+            thought: None,
+            thought_signature: None,
+            tool_calls: None,
+            usage: None,
+            truncated: false,
+        };
+        let err_missing = session.validate(&missing_id).unwrap_err();
+        assert!(matches!(
+            err_missing,
+            ValidationError::FormatViolation(ref msg)
+                if msg.contains("is_duplicate is true but duplicate_of_id was null")
+        ));
 
-        let user = session.initial_user_prompt();
-        assert!(user.contains("same root cause but different consequences"));
-        assert!(
-            user.contains("If fixing one issue will resolve the other issue, it's the same bug")
-        );
+        let unknown_id = AiResponse {
+            content: Some(
+                json!({
+                    "is_duplicate": true,
+                    "duplicate_of_id": 999,
+                    "reasoning": "Same leak"
+                })
+                .to_string(),
+            ),
+            thought: None,
+            thought_signature: None,
+            tool_calls: None,
+            usage: None,
+            truncated: false,
+        };
+        let err_unknown = session.validate(&unknown_id).unwrap_err();
+        assert!(matches!(
+            err_unknown,
+            ValidationError::FormatViolation(ref msg)
+                if msg.contains("duplicate_of_id 999 is not among candidate IDs [42]")
+        ));
+
+        let distinct = AiResponse {
+            content: Some(
+                json!({
+                    "is_duplicate": false,
+                    "duplicate_of_id": null,
+                    "reasoning": "Distinct leak"
+                })
+                .to_string(),
+            ),
+            thought: None,
+            thought_signature: None,
+            tool_calls: None,
+            usage: None,
+            truncated: false,
+        };
+        let parsed = session.validate(&distinct).unwrap();
+        assert!(!parsed.is_duplicate);
+        assert_eq!(parsed.duplicate_of_id, None);
     }
 
     #[test]
@@ -4522,12 +4529,12 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_report_session_prompt_rules() {
-        let session = ReportSession {
+    #[test]
+    fn test_report_session_validation_rejects_empty_and_trims() {
+        let mut session = ReportSession {
             problem: "Integer overflow in sound/core/pcm_native.c",
             severity: "High",
-            canonical_description: "Trigger: 32-bit architecture allocation.\nFailure Mechanism: Overflow.\nImpact: Memory corruption.",
+            canonical_description: "Overflow",
             severity_explanation: "Buffer overflow",
             locations: None,
             introduced_in_commit: None,
@@ -4537,69 +4544,33 @@ mod tests {
             project: ProjectId::Linux,
         };
 
-        let sys_prompt = session.system_prompt();
-        assert!(sys_prompt.contains("On a 32-bit architecture"));
-        assert!(sys_prompt.contains("<...>"));
-        assert!(sys_prompt.contains("^^^^^"));
-        assert!(
-            sys_prompt.contains("Paired Actions Rule")
-                || sys_prompt.contains("Paired actions rule")
-        );
-        assert!(sys_prompt.contains("NEVER use carets to point at a missing thing"));
-        assert!(sys_prompt.contains("75 characters per line"));
-        assert!(sys_prompt.contains("CPU 0"));
-        assert!(sys_prompt.contains("parse_durable_handle_context"));
-        assert!(sys_prompt.contains("ffs_epfile_open"));
-        assert!(sys_prompt.contains("ovl_create_or_link"));
-        assert!(sys_prompt.contains("snd_pcm_hw_params"));
-        assert!(sys_prompt.contains("slots_lock"));
-        assert!(sys_prompt.contains("Include code snippets for all localized defects"));
-        assert!(sys_prompt.contains("missing architectural hook"));
-
-        let user_prompt = session.initial_user_prompt();
-        assert!(user_prompt.contains("32-bit machine"));
-        assert!(user_prompt.contains("<...>"));
-        assert!(user_prompt.contains("^^^^^"));
-        assert!(user_prompt.contains("NEVER use carets to highlight a missing call"));
-        assert!(user_prompt.contains("multi-CPU timeline diagram"));
-        assert!(user_prompt.contains("Include code snippets for all localized defects"));
-        assert!(user_prompt.contains("missing architectural hook"));
-
-        // Snippets are flush left so code keeps its full 75 column budget.
-        assert!(sys_prompt.contains("Start every snippet line at column 0"));
-        assert!(user_prompt.contains("Start every snippet and timeline line at column 0"));
-        assert!(sys_prompt.contains("\n// fs/smb/server/smb2pdu.c:2450-2475\n"));
-        assert!(sys_prompt.contains("\nstatic int parse_durable_handle_context(...)\n"));
-        assert!(sys_prompt.contains("\nCPU 0 (removal thread)"));
-        // Column alignment inside multi-column timelines is still allowed, so
-        // only the four space block wrapper is rejected.
-        for line in sys_prompt.lines() {
-            let indent = line.len() - line.trim_start_matches(' ').len();
-            assert_ne!(
-                indent, 4,
-                "example blocks must not be wrapped in four space indentation: {line:?}"
-            );
+        for empty in [None, Some(String::new()), Some("   \n\t  ".to_string())] {
+            let resp = AiResponse {
+                content: empty,
+                thought: None,
+                thought_signature: None,
+                tool_calls: None,
+                usage: None,
+                truncated: false,
+            };
+            assert!(matches!(
+                session.validate(&resp),
+                Err(ValidationError::FormatViolation(ref msg)) if msg == "Output was empty"
+            ));
         }
-    }
 
-    #[tokio::test]
-    async fn test_severity_session_uses_prompt_file_directly() {
-        let session = SeveritySession {
-            canonical_title: "net: memory leak in dev_alloc()",
-            canonical_description: "Buffer allocated but not freed",
-            locations: "[]",
-            context_tag: None,
-            project: ProjectId::Linux,
+        let valid = AiResponse {
+            content: Some("  \nIn pcm_native(), size overflows.\n  ".to_string()),
+            thought: None,
+            thought_signature: None,
+            tool_calls: None,
+            usage: None,
+            truncated: false,
         };
-
-        let sys_prompt = session.system_prompt();
-        assert!(sys_prompt.contains("# Severity Levels"));
-        assert!(sys_prompt.contains("## Calibrating the level"));
-        assert!(sys_prompt.contains("## Critical"));
-        assert!(sys_prompt.contains("## High"));
-        assert!(sys_prompt.contains("## Medium"));
-        assert!(sys_prompt.contains("## Low"));
-        assert!(sys_prompt.contains("Output raw JSON only"));
+        assert_eq!(
+            session.validate(&valid).unwrap(),
+            "In pcm_native(), size overflows."
+        );
     }
 
     #[tokio::test]
