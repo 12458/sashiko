@@ -791,8 +791,24 @@ pub fn create_provider_from_ai(ai: &AiSettings) -> Result<Arc<dyn AiProvider>> {
                 .or_else(|| std::env::var("GOOGLE_CLOUD_LOCATION").ok())
                 .unwrap_or_else(|| "us-east5".to_string());
             let enable_caching = vertex.map(|v| v.prompt_caching).unwrap_or(true);
-            let max_tokens = vertex.map(|v| v.max_tokens).unwrap_or(8192);
-            let thinking = vertex.and_then(|v| v.thinking.clone());
+            let is_gemini = model.starts_with("gemini");
+            let max_tokens = vertex.and_then(|v| v.max_tokens).unwrap_or_else(|| {
+                if is_gemini {
+                    ai.gemini
+                        .as_ref()
+                        .map(|g| g.max_tokens)
+                        .unwrap_or_else(crate::settings::default_gemini_max_tokens)
+                } else {
+                    8192
+                }
+            });
+            let thinking = vertex.and_then(|v| v.thinking.clone()).or_else(|| {
+                if is_gemini {
+                    ai.gemini.as_ref().and_then(|g| g.thinking_level.clone())
+                } else {
+                    None
+                }
+            });
             let effort = vertex.and_then(|v| v.effort.clone());
             Ok(Arc::new(vertex::VertexClient::new(
                 model,

@@ -276,12 +276,19 @@ pub(crate) fn default_claude_max_tokens() -> u32 {
     32768
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[allow(unused)]
 pub struct GeminiSettings {
     #[serde(default)]
     pub explicit_prompt_caching: bool,
+    /// Max output tokens per `generateContent` request, thinking included.
+    /// Sent as `generationConfig.maxOutputTokens`. On models with Long Decodes
+    /// v2 (`CONTINUATION` support, such as Argon), a single unary hop decodes
+    /// up to the per-hop limit and continues across hops until `max_tokens` is
+    /// reached.
+    #[serde(default = "default_gemini_max_tokens")]
+    pub max_tokens: u32,
     /// Optional custom base URL (overrides default https://generativelanguage.googleapis.com).
     /// Can also be set via GOOGLE_GEMINI_BASE_URL or GEMINI_BASE_URL env vars.
     #[serde(default)]
@@ -300,6 +307,26 @@ pub struct GeminiSettings {
     /// per-request reasoning effort.
     #[serde(default)]
     pub thinking_level: Option<String>,
+}
+
+/// Also the default when the `[ai.gemini]` table is absent. Thinking counts
+/// toward it, and Long Decodes v2 models continue across unary hops up to this
+/// budget.
+pub(crate) fn default_gemini_max_tokens() -> u32 {
+    131_072
+}
+
+impl Default for GeminiSettings {
+    fn default() -> Self {
+        Self {
+            explicit_prompt_caching: false,
+            max_tokens: default_gemini_max_tokens(),
+            base_url: None,
+            proxy_command: None,
+            auth_token_command: None,
+            thinking_level: None,
+        }
+    }
 }
 
 #[cfg(feature = "bedrock")]
@@ -350,20 +377,20 @@ pub struct VertexSettings {
     /// Claude only.
     #[serde(default = "default_prompt_caching")]
     pub prompt_caching: bool,
-    /// Claude only.
-    #[serde(default = "default_vertex_max_tokens")]
-    pub max_tokens: u32,
-    /// Claude only.
+    /// Maximum output tokens per call. When unset, defaults to 8192 for
+    /// Claude models and 131072 (`default_gemini_max_tokens`) for Gemini
+    /// models (or `[ai.gemini] max_tokens` if configured).
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// Thinking mode for Claude (`"adaptive"`, `"enabled"`) or fallback
+    /// thinking level for Gemini (`"LOW"`, `"MEDIUM"`, `"HIGH"`).
     #[serde(default)]
     pub thinking: Option<String>,
-    /// Claude only.
+    /// Effort level for Claude (`"low"`, `"medium"`, `"high"`, `"xhigh"`,
+    /// `"max"`) or default thinking level for Gemini (`"LOW"`, `"MEDIUM"`,
+    /// `"HIGH"`).
     #[serde(default)]
     pub effort: Option<String>,
-}
-
-#[cfg(feature = "vertex")]
-fn default_vertex_max_tokens() -> u32 {
-    8192
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1747,6 +1774,16 @@ mod tests {
 
         let capped: ClaudeSettings = toml::from_str("max_tokens = 4096").unwrap();
         assert_eq!(capped.max_tokens, 4096);
+    }
+
+    #[test]
+    fn test_gemini_max_tokens_defaults_to_128k() {
+        let gemini: GeminiSettings = toml::from_str("").unwrap();
+        assert_eq!(gemini.max_tokens, 131_072);
+        assert_eq!(GeminiSettings::default().max_tokens, 131_072);
+
+        let capped: GeminiSettings = toml::from_str("max_tokens = 65536").unwrap();
+        assert_eq!(capped.max_tokens, 65_536);
     }
 
     #[test]

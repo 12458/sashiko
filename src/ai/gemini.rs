@@ -55,6 +55,12 @@ pub enum Part {
         #[serde(rename = "functionResponse")]
         function_response: FunctionResponse,
     },
+    ThoughtSignature {
+        #[serde(rename = "thoughtSignature")]
+        thought_signature: String,
+        #[serde(default)]
+        thought: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -95,6 +101,8 @@ pub struct GenerateContentRequest {
     pub system_instruction: Option<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_config: Option<GenerationConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -114,6 +122,8 @@ pub struct GenerationConfig {
     pub response_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_config: Option<ThinkingConfig>,
 }
@@ -138,6 +148,8 @@ pub struct Candidate {
     #[serde(default)]
     pub content: Content,
     pub finish_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -434,6 +446,7 @@ pub struct GeminiClient {
     proxy_command: Option<String>,
     auth_token_command: Option<String>,
     thinking_level: Option<String>,
+    max_tokens: u32,
     proxy_url: tokio::sync::OnceCell<String>,
     proxy_guard: tokio::sync::Mutex<Option<std::sync::Arc<ProxyGuard>>>,
     client: RwLock<Client>,
@@ -474,6 +487,10 @@ impl GeminiClient {
             .filter(|s| !s.is_empty())
             .map(str::to_ascii_uppercase);
 
+        let max_tokens = settings
+            .map(|s| s.max_tokens)
+            .unwrap_or_else(crate::settings::default_gemini_max_tokens);
+
         let client = Self::create_http_client(&api_key);
 
         Self {
@@ -483,6 +500,7 @@ impl GeminiClient {
             proxy_command,
             auth_token_command,
             thinking_level,
+            max_tokens,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(client),
@@ -711,13 +729,123 @@ impl GeminiClient {
     }
 }
 
+/// Maximum number of continuation hops per `generateContent` turn.
+/// At 32K tokens per hop, 16 hops bounds even a raised `max_tokens` to 512K
+/// output tokens and prevents an infinite loop if a backend returns non-empty
+/// continuation tokens indefinitely.
+pub(crate) const MAX_CONTINUATION_HOPS: usize = 16;
+
+pub(crate) fn next_continuation_token(
+    resp: &GenerateContentResponse,
+    last_sent_token: Option<&str>,
+) -> Option<String> {
+    if resp
+        .prompt_feedback
+        .as_ref()
+        .and_then(|f| f.block_reason.as_ref())
+        .is_some()
+    {
+        return None;
+    }
+    let candidate = resp.candidates.as_ref()?.first()?;
+    if candidate.finish_reason.as_deref() != Some("CONTINUATION") {
+        return None;
+    }
+    let token = candidate.continuation_token.as_deref()?.trim();
+    if token.is_empty() || last_sent_token == Some(token) {
+        return None;
+    }
+    Some(token.to_string())
+}
+
+fn sum_optional_u32(a: Option<u32>, b: Option<u32>) -> Option<u32> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.saturating_add(y)),
+        (Some(x), None) => Some(x),
+        (None, Some(y)) => Some(y),
+        (None, None) => None,
+    }
+}
+
+pub(crate) fn merge_continuation_response(
+    acc: &mut GenerateContentResponse,
+    next: GenerateContentResponse,
+) {
+    if next
+        .prompt_feedback
+        .as_ref()
+        .and_then(|f| f.block_reason.as_ref())
+        .is_some()
+    {
+        acc.prompt_feedback = next.prompt_feedback;
+    }
+
+    if let Some(mut next_cands) = next.candidates
+        && let Some(next_cand) = next_cands.drain(..).next()
+    {
+        if let Some(acc_cands) = acc.candidates.as_mut()
+            && let Some(acc_cand) = acc_cands.first_mut()
+        {
+            acc_cand.content.parts.extend(next_cand.content.parts);
+            acc_cand.finish_reason = next_cand.finish_reason;
+            acc_cand.continuation_token = next_cand.continuation_token;
+        } else {
+            acc.candidates = Some(vec![next_cand]);
+        }
+    }
+
+    match (acc.usage_metadata.as_mut(), next.usage_metadata) {
+        (Some(acc_u), Some(next_u)) => {
+            acc_u.prompt_token_count = acc_u
+                .prompt_token_count
+                .saturating_add(next_u.prompt_token_count);
+            acc_u.candidates_token_count =
+                sum_optional_u32(acc_u.candidates_token_count, next_u.candidates_token_count);
+            acc_u.total_token_count = acc_u
+                .total_token_count
+                .saturating_add(next_u.total_token_count);
+            acc_u.cached_content_token_count = sum_optional_u32(
+                acc_u.cached_content_token_count,
+                next_u.cached_content_token_count,
+            );
+        }
+        (None, Some(next_u)) => {
+            acc.usage_metadata = Some(next_u);
+        }
+        _ => {}
+    }
+}
+
 #[async_trait]
 impl GenAiClient for GeminiClient {
     async fn generate_content(
         &self,
-        request: GenerateContentRequest,
+        mut request: GenerateContentRequest,
     ) -> Result<GenerateContentResponse> {
-        self.generate_content_single(&request).await
+        let mut acc = self.generate_content_single(&request).await?;
+        for hop in 1..=MAX_CONTINUATION_HOPS {
+            let Some(token) = next_continuation_token(&acc, request.continuation_token.as_deref())
+            else {
+                return Ok(acc);
+            };
+            tracing::info!(
+                "{}Gemini response reached per-hop limit (finishReason=CONTINUATION); requesting continuation hop {}/{}...",
+                crate::ai::get_log_prefix(),
+                hop,
+                MAX_CONTINUATION_HOPS
+            );
+            request.continuation_token = Some(token);
+            let next_resp = self.generate_content_single(&request).await?;
+            merge_continuation_response(&mut acc, next_resp);
+        }
+        if next_continuation_token(&acc, request.continuation_token.as_deref()).is_some() {
+            tracing::warn!(
+                "{}Gemini continuation loop reached MAX_CONTINUATION_HOPS ({}); returning partial response.",
+                crate::ai::get_log_prefix(),
+                MAX_CONTINUATION_HOPS
+            );
+        }
+        Ok(acc)
     }
 }
 
@@ -779,14 +907,31 @@ impl AiProvider for StdioGeminiClient {
 
 // --- Translation Helpers ---
 
-#[cfg(any(test, feature = "vertex"))]
+#[cfg(test)]
 pub(crate) fn translate_ai_request(request: AiRequest) -> Result<GenerateContentRequest> {
-    translate_ai_request_with_thinking_level(request, None)
+    translate_ai_request_with_options(
+        request,
+        None,
+        Some(crate::settings::default_gemini_max_tokens()),
+    )
 }
 
+#[cfg(test)]
 pub(crate) fn translate_ai_request_with_thinking_level(
     request: AiRequest,
     default_thinking_level: Option<&str>,
+) -> Result<GenerateContentRequest> {
+    translate_ai_request_with_options(
+        request,
+        default_thinking_level,
+        Some(crate::settings::default_gemini_max_tokens()),
+    )
+}
+
+pub(crate) fn translate_ai_request_with_options(
+    request: AiRequest,
+    default_thinking_level: Option<&str>,
+    max_output_tokens: Option<u32>,
 ) -> Result<GenerateContentRequest> {
     let mut contents: Vec<Content> = Vec::new();
     let mut system_instruction = None;
@@ -948,11 +1093,13 @@ pub(crate) fn translate_ai_request_with_thinking_level(
             response_mime_type,
             response_schema,
             temperature: request.temperature,
+            max_output_tokens: max_output_tokens.filter(|&n| n > 0),
             thinking_config: Some(ThinkingConfig {
                 include_thoughts: true,
                 thinking_level,
             }),
         }),
+        continuation_token: None,
     })
 }
 
@@ -1003,7 +1150,10 @@ pub(crate) fn translate_ai_response(resp: GenerateContentResponse) -> Result<AiR
                 "Gemini candidate blocked (finish reason: {})",
                 finish_reason
             ));
-        } else if finish_reason != "STOP" && finish_reason != "MAX_TOKENS" {
+        } else if finish_reason != "STOP"
+            && finish_reason != "MAX_TOKENS"
+            && finish_reason != "CONTINUATION"
+        {
             tracing::warn!(
                 "Gemini candidate finished with unexpected reason: {}",
                 finish_reason
@@ -1013,15 +1163,21 @@ pub(crate) fn translate_ai_response(resp: GenerateContentResponse) -> Result<AiR
 
     let mut content = String::new();
     let mut thought = String::new();
+    let mut last_thought_signature: Option<String> = None;
     let mut tool_calls = Vec::new();
 
     for part in &candidate.content.parts {
         match part {
             Part::Text {
                 text,
+                thought_signature,
                 thought: is_thought,
-                ..
             } => {
+                if let Some(sig) = thought_signature
+                    && !sig.is_empty()
+                {
+                    last_thought_signature = Some(sig.clone());
+                }
                 if *is_thought {
                     thought.push_str(text);
                 } else {
@@ -1032,29 +1188,41 @@ pub(crate) fn translate_ai_response(resp: GenerateContentResponse) -> Result<AiR
                 function_call,
                 thought_signature,
             } => {
+                let pending_signature = last_thought_signature.take();
+                let effective_signature = thought_signature
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .or(pending_signature);
                 tool_calls.push(ToolCall {
                     id: function_call.name.clone(), // Gemini doesn't have explicit call IDs in v1beta
                     function_name: function_call.name.clone(),
                     arguments: crate::toolbox::utils::normalize_json_numbers(
                         function_call.args.clone(),
                     ),
-                    thought_signature: thought_signature.clone(),
+                    thought_signature: effective_signature,
                 });
             }
-            _ => {}
+            Part::ThoughtSignature {
+                thought_signature, ..
+            } => {
+                if !thought_signature.is_empty() {
+                    last_thought_signature = Some(thought_signature.clone());
+                }
+            }
+            Part::FunctionResponse { .. } => {}
         }
     }
 
     let truncated = candidate
         .finish_reason
-        .as_ref()
-        .map(|r| r == "MAX_TOKENS")
-        .unwrap_or(false);
+        .as_deref()
+        .is_some_and(|r| r == "MAX_TOKENS" || r == "CONTINUATION");
 
     if truncated {
         tracing::warn!(
-            "{}Gemini response truncated due to MAX_TOKENS.",
-            crate::ai::get_log_prefix()
+            "{}Gemini response truncated (finish reason: {}).",
+            crate::ai::get_log_prefix(),
+            candidate.finish_reason.as_deref().unwrap_or("UNKNOWN")
         );
     }
 
@@ -1090,8 +1258,11 @@ pub(crate) fn translate_ai_response(resp: GenerateContentResponse) -> Result<AiR
 #[async_trait]
 impl AiProvider for GeminiClient {
     async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
-        let gen_req =
-            translate_ai_request_with_thinking_level(request, self.thinking_level.as_deref())?;
+        let gen_req = translate_ai_request_with_options(
+            request,
+            self.thinking_level.as_deref(),
+            Some(self.max_tokens),
+        )?;
         let resp = GenAiClient::generate_content(self, gen_req).await?;
         translate_ai_response(resp)
     }
@@ -1105,12 +1276,15 @@ impl AiProvider for GeminiClient {
 
     fn cache_identity(&self) -> String {
         // base_url separates two endpoints serving the same model name;
-        // thinking_level is the provider default when a request omits its own.
+        // thinking_level is the provider default when a request omits its own;
+        // max_tokens bounds total output tokens across hops.
+        let max_tokens = self.max_tokens.to_string();
         crate::ai::cache_identity_with(
             &self.model,
             &[
                 ("base_url", Some(self.base_url.as_str())),
                 ("thinking_level", self.thinking_level.as_deref()),
+                ("max_tokens", Some(max_tokens.as_str())),
             ],
         )
     }
@@ -1127,25 +1301,40 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn cache_identity_tracks_base_url_and_thinking_level() {
-        let client = |base_url: &str, thinking_level: Option<&str>| GeminiClient {
+    fn cache_identity_tracks_base_url_thinking_level_and_max_tokens() {
+        let client = |base_url: &str, thinking_level: Option<&str>, max_tokens: u32| GeminiClient {
             model: "gemini-2.5-pro".to_string(),
             base_url: base_url.to_string(),
             api_key: String::new(),
             proxy_command: None,
             auth_token_command: None,
             thinking_level: thinking_level.map(str::to_string),
+            max_tokens,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
         };
         assert_ne!(
-            client("https://generativelanguage.googleapis.com", None).cache_identity(),
-            client("https://proxy.invalid", None).cache_identity()
+            client("https://generativelanguage.googleapis.com", None, 131_072).cache_identity(),
+            client("https://proxy.invalid", None, 131_072).cache_identity()
         );
         assert_ne!(
-            client("https://generativelanguage.googleapis.com", Some("MEDIUM")).cache_identity(),
-            client("https://generativelanguage.googleapis.com", Some("HIGH")).cache_identity()
+            client(
+                "https://generativelanguage.googleapis.com",
+                Some("MEDIUM"),
+                131_072
+            )
+            .cache_identity(),
+            client(
+                "https://generativelanguage.googleapis.com",
+                Some("HIGH"),
+                131_072
+            )
+            .cache_identity()
+        );
+        assert_ne!(
+            client("https://generativelanguage.googleapis.com", None, 65_536).cache_identity(),
+            client("https://generativelanguage.googleapis.com", None, 131_072).cache_identity()
         );
     }
 
@@ -1158,6 +1347,7 @@ mod tests {
             proxy_command: Some("echo 18432 > {port_file}; sleep 10".to_string()),
             auth_token_command: None,
             thinking_level: None,
+            max_tokens: 131_072,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
@@ -1185,6 +1375,7 @@ mod tests {
             proxy_command: None,
             auth_token_command: Some("echo mock-bearer-token-xyz".to_string()),
             thinking_level: None,
+            max_tokens: 131_072,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
@@ -1204,6 +1395,7 @@ mod tests {
             proxy_command: None,
             auth_token_command: None,
             thinking_level: None,
+            max_tokens: 131_072,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(Client::new()),
@@ -1394,6 +1586,7 @@ mod tests {
             proxy_command: None,
             auth_token_command: None,
             thinking_level: None,
+            max_tokens: 131_072,
             proxy_url: tokio::sync::OnceCell::new(),
             proxy_guard: tokio::sync::Mutex::new(None),
             client: RwLock::new(test_http::test_client()),
@@ -1407,6 +1600,7 @@ mod tests {
             tools: None,
             system_instruction: None,
             generation_config: None,
+            continuation_token: None,
         };
         let url = format!("{}/v1beta/models/gemini-test:generateContent", server.url);
         let result = tokio::time::timeout(
@@ -1600,6 +1794,7 @@ mod tests {
             tools: None,
             system_instruction: None,
             generation_config: None,
+            continuation_token: None,
         };
         tokio::time::timeout(
             test_http::TEST_TIMEOUT,
@@ -1765,6 +1960,7 @@ mod tests {
                     }],
                 },
                 finish_reason: Some("STOP".to_string()),
+                continuation_token: None,
             }]),
             prompt_feedback: None,
             usage_metadata: Some(UsageMetadata {
@@ -2191,5 +2387,270 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_translate_ai_request_max_output_tokens_serialization() -> Result<()> {
+        let req = AiRequest {
+            system: None,
+            messages: vec![AiMessage {
+                role: AiRole::User,
+                content: Some("Check this.".to_string()),
+                thought: None,
+                thought_signature: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            tools: None,
+            temperature: None,
+            response_format: None,
+            context_tag: None,
+            reasoning_effort: None,
+        };
+
+        let translated = translate_ai_request_with_options(req.clone(), None, Some(131_072))?;
+        let json = serde_json::to_value(&translated)?;
+        assert_eq!(json["generationConfig"]["maxOutputTokens"], json!(131_072));
+        assert!(json.get("continuationToken").is_none());
+
+        let zero = translate_ai_request_with_options(req, None, Some(0))?;
+        let zero_json = serde_json::to_value(&zero)?;
+        assert!(
+            zero_json["generationConfig"]
+                .get("maxOutputTokens")
+                .is_none()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_part_deserialization_thought_only_and_function_call() -> Result<()> {
+        // A continuation hop that decodes only thoughts and ends with a
+        // thoughtSignature may omit the `text` field on `Part`.
+        let raw = json!({
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"text": "thinking part 1 ", "thought": true},
+                        {"thoughtSignature": "sig_from_hop_1"},
+                        {"functionCall": {"name": "git_diff", "args": {"commit": "HEAD"}}}
+                    ]
+                },
+                "finishReason": "STOP"
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 100,
+                "candidatesTokenCount": 50,
+                "totalTokenCount": 150
+            }
+        });
+
+        let parsed: GenerateContentResponse = serde_json::from_value(raw)?;
+        let ai_resp = translate_ai_response(parsed)?;
+        assert_eq!(ai_resp.thought.as_deref(), Some("thinking part 1 "));
+        let calls = ai_resp.tool_calls.expect("expected tool call");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function_name, "git_diff");
+        assert_eq!(
+            calls[0].thought_signature.as_deref(),
+            Some("sig_from_hop_1"),
+            "thoughtSignature from preceding part must propagate to FunctionCall"
+        );
+
+        // When a FunctionCall carries its own explicit thoughtSignature, any
+        // earlier pending signature must be cleared so it does not leak to a
+        // subsequent FunctionCall in the same turn.
+        let raw_multi = json!({
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"thoughtSignature": "stale_sig"},
+                        {"functionCall": {"name": "first_call", "args": {}}, "thoughtSignature": "explicit_sig"},
+                        {"functionCall": {"name": "second_call", "args": {}}}
+                    ]
+                },
+                "finishReason": "STOP"
+            }]
+        });
+        let multi_resp = translate_ai_response(serde_json::from_value(raw_multi)?)?;
+        let multi_calls = multi_resp.tool_calls.expect("expected tool calls");
+        assert_eq!(multi_calls.len(), 2);
+        assert_eq!(
+            multi_calls[0].thought_signature.as_deref(),
+            Some("explicit_sig")
+        );
+        assert_eq!(multi_calls[1].thought_signature, None);
+
+        assert!(
+            serde_json::from_value::<Part>(json!({"executableCode": {"code": "1+1"}})).is_err(),
+            "unrecognized Part variants must fail deserialization rather than match a catch-all"
+        );
+        assert!(
+            serde_json::from_value::<Part>(json!({})).is_err(),
+            "empty Part object must fail deserialization"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_multi_hop_continuation_merges_parts_and_usage() -> Result<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+
+        let server = tokio::spawn(async move {
+            let mut seen_tokens: Vec<Option<String>> = Vec::new();
+            let responses = [
+                json!({
+                    "candidates": [{
+                        "content": {
+                            "role": "model",
+                            "parts": [
+                                {"text": "deep thought...", "thought": true, "thoughtSignature": "hop1_sig"},
+                                {"text": "{\"findings\": ["}
+                            ]
+                        },
+                        "finishReason": "CONTINUATION",
+                        "continuationToken": "tok_hop_1"
+                    }],
+                    "usageMetadata": {
+                        "promptTokenCount": 1000,
+                        "candidatesTokenCount": 32768,
+                        "totalTokenCount": 33768,
+                        "cachedContentTokenCount": 800
+                    }
+                }),
+                json!({
+                    "candidates": [{
+                        "content": {
+                            "role": "model",
+                            "parts": [
+                                {"text": "]}"}
+                            ]
+                        },
+                        "finishReason": "STOP"
+                    }],
+                    "usageMetadata": {
+                        "promptTokenCount": 33768,
+                        "candidatesTokenCount": 120,
+                        "totalTokenCount": 33888,
+                        "cachedContentTokenCount": 33000
+                    }
+                }),
+            ];
+
+            for resp_json in responses {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let header_end = loop {
+                    let n = stream.read(&mut chunk).await.unwrap();
+                    assert!(n > 0, "client closed before sending request headers");
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break pos + 4;
+                    }
+                };
+                let headers = String::from_utf8_lossy(&buf[..header_end]).to_ascii_lowercase();
+                let content_length = headers
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                while buf.len() < header_end + content_length {
+                    let n = stream.read(&mut chunk).await.unwrap();
+                    assert!(n > 0, "client closed before sending request body");
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                let body_json: Value =
+                    serde_json::from_slice(&buf[header_end..header_end + content_length]).unwrap();
+                seen_tokens.push(
+                    body_json
+                        .get("continuationToken")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                );
+
+                let body_str = resp_json.to_string();
+                let wire = test_http::complete("200 OK", "", &body_str);
+                stream.write_all(&wire).await.unwrap();
+                stream.flush().await.unwrap();
+            }
+            seen_tokens
+        });
+
+        let client = local_client(&format!("http://{addr}"));
+        let req = AiRequest {
+            system: None,
+            messages: vec![AiMessage {
+                role: AiRole::User,
+                content: Some("Review patch.".to_string()),
+                thought: None,
+                thought_signature: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            tools: None,
+            temperature: None,
+            response_format: None,
+            context_tag: None,
+            reasoning_effort: Some(crate::ai::ReasoningEffort::High),
+        };
+
+        let ai_resp = AiProvider::generate_content(&client, req).await?;
+        let seen_tokens = tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .expect("server did not receive all expected continuation hops")?;
+
+        assert_eq!(seen_tokens, vec![None, Some("tok_hop_1".to_string())]);
+        assert!(!ai_resp.truncated);
+        assert_eq!(ai_resp.thought.as_deref(), Some("deep thought..."));
+        assert_eq!(ai_resp.content.as_deref(), Some("{\"findings\": []}"));
+        let usage = ai_resp.usage.expect("expected usage metadata");
+        assert_eq!(usage.prompt_tokens, 34_768);
+        assert_eq!(usage.completion_tokens, 32_888);
+        assert_eq!(usage.total_tokens, 67_656);
+        assert_eq!(usage.cached_tokens, Some(33_800));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_continuation_stops_on_max_tokens_or_duplicate_token() {
+        let max_tokens_resp = GenerateContentResponse {
+            candidates: Some(vec![Candidate {
+                content: Content::default(),
+                finish_reason: Some("MAX_TOKENS".to_string()),
+                continuation_token: Some("tok_ignored".to_string()),
+            }]),
+            prompt_feedback: None,
+            usage_metadata: None,
+        };
+        assert_eq!(next_continuation_token(&max_tokens_resp, None), None);
+
+        let cont_resp = GenerateContentResponse {
+            candidates: Some(vec![Candidate {
+                content: Content::default(),
+                finish_reason: Some("CONTINUATION".to_string()),
+                continuation_token: Some("tok_same".to_string()),
+            }]),
+            prompt_feedback: None,
+            usage_metadata: None,
+        };
+        assert_eq!(
+            next_continuation_token(&cont_resp, None).as_deref(),
+            Some("tok_same")
+        );
+        assert_eq!(
+            next_continuation_token(&cont_resp, Some("tok_same")),
+            None,
+            "duplicate continuation token must stop the loop"
+        );
     }
 }

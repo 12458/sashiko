@@ -181,6 +181,14 @@ impl VertexClient {
             ModelFamily::Gemini => 1_000_000,
         };
 
+        let (thinking, effort) = match model_family {
+            ModelFamily::Claude => (thinking, effort),
+            ModelFamily::Gemini => (
+                normalize_gemini_thinking(thinking.as_deref(), effort.as_deref()),
+                None,
+            ),
+        };
+
         let credentials = Builder::default()
             .build_access_token_credentials()
             .map_err(|e| anyhow::anyhow!("Failed to initialize Google Cloud credentials: {e}"))?;
@@ -319,10 +327,46 @@ impl VertexClient {
     }
 
     async fn generate_gemini(&self, request: AiRequest) -> Result<AiResponse> {
-        let gemini_req = gemini::translate_ai_request(request)?;
-        let response = self.post_gemini_request(&gemini_req).await?;
-        gemini::translate_ai_response(response)
+        let mut gemini_req = gemini::translate_ai_request_with_options(
+            request,
+            self.thinking.as_deref(),
+            Some(self.max_tokens),
+        )?;
+        let mut acc = self.post_gemini_request(&gemini_req).await?;
+        for hop in 1..=gemini::MAX_CONTINUATION_HOPS {
+            let Some(token) =
+                gemini::next_continuation_token(&acc, gemini_req.continuation_token.as_deref())
+            else {
+                return gemini::translate_ai_response(acc);
+            };
+            info!(
+                "{}Vertex AI Gemini response reached per-hop limit (finishReason=CONTINUATION); requesting continuation hop {}/{}...",
+                crate::ai::get_log_prefix(),
+                hop,
+                gemini::MAX_CONTINUATION_HOPS
+            );
+            gemini_req.continuation_token = Some(token);
+            let next_resp = self.post_gemini_request(&gemini_req).await?;
+            gemini::merge_continuation_response(&mut acc, next_resp);
+        }
+        if gemini::next_continuation_token(&acc, gemini_req.continuation_token.as_deref()).is_some()
+        {
+            tracing::warn!(
+                "{}Vertex AI Gemini continuation loop reached MAX_CONTINUATION_HOPS ({}); returning partial response.",
+                crate::ai::get_log_prefix(),
+                gemini::MAX_CONTINUATION_HOPS
+            );
+        }
+        gemini::translate_ai_response(acc)
     }
+}
+
+fn normalize_gemini_thinking(thinking: Option<&str>, effort: Option<&str>) -> Option<String> {
+    effort
+        .or(thinking)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_ascii_uppercase)
 }
 
 fn build_cache_identity(
@@ -592,6 +636,7 @@ mod tests {
             tools: None,
             system_instruction: None,
             generation_config: None,
+            continuation_token: None,
         };
         tokio::time::timeout(
             test_http::TEST_TIMEOUT,
@@ -867,5 +912,19 @@ mod tests {
                 || model.contains("sonnet-4-6");
             assert!(!is_1m, "Expected 200K context for {model}");
         }
+    }
+
+    #[test]
+    fn test_vertex_gemini_thinking_normalization() {
+        assert_eq!(normalize_gemini_thinking(None, None), None);
+        assert_eq!(normalize_gemini_thinking(Some("  "), Some("")), None);
+        assert_eq!(
+            normalize_gemini_thinking(Some("medium"), None),
+            Some("MEDIUM".to_string())
+        );
+        assert_eq!(
+            normalize_gemini_thinking(Some("medium"), Some(" high ")),
+            Some("HIGH".to_string())
+        );
     }
 }

@@ -6,6 +6,7 @@ temperature = 1.0
 
 [ai.gemini]
 explicit_prompt_caching = false
+# max_tokens = 131072
 # thinking_level = "HIGH"
 
 [review]
