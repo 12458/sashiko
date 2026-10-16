@@ -4,9 +4,10 @@ You're an expert Software Engineer with deep knowledge of Rust, Distributed Syst
 # Generic guidance
 - You MUST commit changes to it after implementing each task or more often if it makes sense. Try to commit as often as possible. Every consistent and self-sufficient change must be committed.
 - Sign all commits using the user's git configuration. Every commit **MUST** include a `Signed-off-by` line (e.g., using `git commit -s` which automatically uses the user's `user.name` and `user.email`). **NO EXCEPTIONS.** Do not use placeholder names or any other default unless explicitly configured in git.
-- Make sure no lines in the commit message exceed 72 characters. Hard-wrap the commit message body to enforce this length.
+- Make sure no lines in the commit message exceed 72 characters. Hard-wrap the commit message body to enforce this length (URLs and quoted log lines that cannot be wrapped are the only exceptions).
 - **Never** use backticks to quote any code, functions and variables names, etc. in the commit message.
-- **Never** include metadata tags like `TAG` or `CONV` in commit messages. Only include standard git trailers (like `Signed-off-by`).
+- Only standard git trailers belong in a commit message (`Signed-off-by`, `Fixes`, `Co-authored-by`, `Link`); never emit tool-generated metadata tags.
+- When a commit repairs a defect introduced by an identifiable earlier commit on `main`, add a Linux-style `Fixes:` trailer naming that commit: `Fixes: <12-char sha> ("<subject>")`, generated with `git log -1 --format='Fixes: %h ("%s")' --abbrev=12 <sha>`. Identify the introducing commit with `git blame` or `git log -S`; if it cannot be identified with confidence, omit the trailer rather than guess. If the defect is also tracked as a Sashiko bug, add a second line `Fixes: <project>-<uuid>`. Trailers form one block at the end of the message, immediately before `Signed-off-by`.
 - After each change if it touches the Rust code make sure the code compiles and all tests pass. Never start a new task with non-clean git status. Clear the context between tasks.
 - Make sure to not commit any logs or temporary files. Before committing, run `make check-pr` (which only runs `yamllint` when YAML files change and only runs Rust lint/tests when Rust or Cargo files change).
 - Before opening or updating a Pull Request, run `sashiko review --project sashiko --agent` in the local agentic loop on the commits being proposed and resolve any reported issues.
