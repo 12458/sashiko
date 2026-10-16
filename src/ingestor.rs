@@ -17,15 +17,116 @@ use crate::events::{Event, IngestTracker};
 pub use crate::mbox::{is_mbox_separator, split_mbox};
 use crate::nntp::NntpClient;
 use crate::settings::Settings;
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
+
+const LORE_MANIFEST_URL: &str = "https://lore.kernel.org/manifest.js.gz";
+/// The manifest is a few MiB compressed; anything larger is not lore.
+const MAX_MANIFEST_DOWNLOAD: usize = 64 * 1024 * 1024;
+/// Caps the inflated manifest so a hostile response cannot exhaust memory.
+const MAX_MANIFEST_DECOMPRESSED: usize = 256 * 1024 * 1024;
+const MANIFEST_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const MANIFEST_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
+/// One client serves every tracked list so bootstrap reuses connections.
+static MANIFEST_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn manifest_http_client() -> Result<&'static reqwest::Client> {
+    if let Some(client) = MANIFEST_HTTP_CLIENT.get() {
+        return Ok(client);
+    }
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(MANIFEST_CONNECT_TIMEOUT)
+        .timeout(MANIFEST_FETCH_TIMEOUT)
+        .build()
+        .context("failed to build lore manifest HTTP client")?;
+    Ok(MANIFEST_HTTP_CLIENT.get_or_init(|| client))
+}
+
+/// Downloads the compressed lore manifest with a bounded size and deadline.
+async fn fetch_lore_manifest() -> Result<Vec<u8>> {
+    let mut response = manifest_http_client()?
+        .get(LORE_MANIFEST_URL)
+        .send()
+        .await
+        .context("failed to fetch lore manifest")?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(anyhow!("lore manifest returned HTTP {status}"));
+    }
+
+    let mut compressed = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("failed to download lore manifest")?
+    {
+        if compressed.len() + chunk.len() > MAX_MANIFEST_DOWNLOAD {
+            return Err(anyhow!(
+                "lore manifest exceeds the {MAX_MANIFEST_DOWNLOAD} byte download limit"
+            ));
+        }
+        compressed.extend_from_slice(&chunk);
+    }
+    Ok(compressed)
+}
+
+/// Inflates a gzipped manifest and parses it, refusing oversized output.
+fn decode_manifest(compressed: &[u8]) -> Result<Value> {
+    use std::io::Read as _;
+
+    let decoder = flate2::read::GzDecoder::new(compressed);
+    let mut limited = decoder.take((MAX_MANIFEST_DECOMPRESSED + 1) as u64);
+    let mut raw = Vec::new();
+    limited
+        .read_to_end(&mut raw)
+        .context("failed to decompress lore manifest")?;
+    if raw.len() > MAX_MANIFEST_DECOMPRESSED {
+        return Err(anyhow!(
+            "decompressed lore manifest exceeds the {MAX_MANIFEST_DECOMPRESSED} byte limit"
+        ));
+    }
+    serde_json::from_slice(&raw).context("failed to parse lore manifest")
+}
+
+/// Lists the git epochs the manifest advertises for a list, newest first,
+/// falling back to 0.git when the manifest does not mention the list.
+fn parse_epoch_urls(list_id: &str, manifest: &Value) -> Result<Vec<(i32, String)>> {
+    let map = manifest
+        .as_object()
+        .ok_or_else(|| anyhow!("Manifest is not a JSON object"))?;
+
+    let mut epochs = Vec::new();
+    let prefix = format!("/{}/git/", list_id);
+
+    for key in map.keys() {
+        if let Some(suffix) = key
+            .strip_prefix(&prefix)
+            .and_then(|rest| rest.strip_suffix(".git"))
+            && let Ok(epoch) = suffix.parse::<i32>()
+        {
+            epochs.push((epoch, format!("https://lore.kernel.org{}", key)));
+        }
+    }
+
+    epochs.sort_by_key(|b| std::cmp::Reverse(b.0)); // Descending order
+
+    if epochs.is_empty() {
+        warn!(
+            "Could not find any epochs for {}, defaulting to 0.git",
+            list_id
+        );
+        epochs.push((0, format!("https://lore.kernel.org/{}/0.git", list_id)));
+    }
+
+    Ok(epochs)
+}
 
 pub struct Ingestor {
     settings: Settings,
@@ -252,42 +353,13 @@ impl Ingestor {
     async fn find_epoch_urls(&self, list_id: &str) -> Result<Vec<(i32, String)>> {
         info!("Fetching manifest to find epochs for {}", list_id);
 
-        let output = Command::new("bash")
-            .arg("-c")
-            .arg("curl -s https://lore.kernel.org/manifest.js.gz | gunzip")
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            return Err(anyhow!("Failed to fetch manifest"));
-        }
-
-        let json: Value = serde_json::from_slice(&output.stdout)?;
-        let map = json
-            .as_object()
-            .ok_or_else(|| anyhow!("Manifest is not a JSON object"))?;
-
-        let mut epochs = Vec::new();
-        let prefix = format!("/{}/git/", list_id);
-
-        for (key, _val) in map {
-            if key.starts_with(&prefix) && key.ends_with(".git") {
-                let suffix = &key[prefix.len()..key.len() - 4];
-                if let Ok(epoch) = suffix.parse::<i32>() {
-                    epochs.push((epoch, format!("https://lore.kernel.org{}", key)));
-                }
-            }
-        }
-
-        epochs.sort_by_key(|b| std::cmp::Reverse(b.0)); // Descending order
-
-        if epochs.is_empty() {
-            warn!(
-                "Could not find any epochs for {}, defaulting to 0.git",
-                list_id
-            );
-            epochs.push((0, format!("https://lore.kernel.org/{}/0.git", list_id)));
-        }
+        // An in-process fetch is dropped together with the task that awaits
+        // it, so cancellation cannot leave a shell pipeline running.
+        let compressed = fetch_lore_manifest().await?;
+        let manifest = tokio::task::spawn_blocking(move || decode_manifest(&compressed))
+            .await
+            .context("lore manifest decompression task failed")??;
+        let epochs = parse_epoch_urls(list_id, &manifest)?;
 
         info!("Found {} epochs for {}", epochs.len(), list_id);
         Ok(epochs)
@@ -742,6 +814,84 @@ pub fn extract_message_id(raw_bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gzip(raw: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(raw).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn parse_epoch_urls_sorts_epochs_newest_first() {
+        let manifest = serde_json::json!({
+            "/lkml/git/0.git": {},
+            "/lkml/git/2.git": {},
+            "/lkml/git/10.git": {},
+            "/lkml/git/1.git": {},
+        });
+        let epochs = parse_epoch_urls("lkml", &manifest).unwrap();
+        assert_eq!(
+            epochs,
+            vec![
+                (10, "https://lore.kernel.org/lkml/git/10.git".to_string()),
+                (2, "https://lore.kernel.org/lkml/git/2.git".to_string()),
+                (1, "https://lore.kernel.org/lkml/git/1.git".to_string()),
+                (0, "https://lore.kernel.org/lkml/git/0.git".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_epoch_urls_ignores_other_lists_and_malformed_keys() {
+        let manifest = serde_json::json!({
+            "/netdev/git/0.git": {},
+            "/netdev/git/1.git": {},
+            "/lkml/git/0.git": {},
+            "/netdev-stable/git/0.git": {},
+            "/netdev/git/latest.git": {},
+            "/netdev/git/2": {},
+            "/netdev/0.git": {},
+        });
+        let epochs = parse_epoch_urls("netdev", &manifest).unwrap();
+        assert_eq!(
+            epochs,
+            vec![
+                (1, "https://lore.kernel.org/netdev/git/1.git".to_string()),
+                (0, "https://lore.kernel.org/netdev/git/0.git".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_epoch_urls_defaults_to_epoch_zero_when_list_is_missing() {
+        let epochs = parse_epoch_urls("netdev", &serde_json::json!({})).unwrap();
+        assert_eq!(
+            epochs,
+            vec![(0, "https://lore.kernel.org/netdev/0.git".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_epoch_urls_rejects_non_object_manifest() {
+        assert!(parse_epoch_urls("netdev", &serde_json::json!([])).is_err());
+    }
+
+    #[test]
+    fn decode_manifest_inflates_gzipped_json() {
+        let compressed = gzip(br#"{"/lkml/git/0.git":{},"/lkml/git/1.git":{}}"#);
+        let manifest = decode_manifest(&compressed).unwrap();
+        let epochs = parse_epoch_urls("lkml", &manifest).unwrap();
+        assert_eq!(epochs.len(), 2);
+        assert_eq!(epochs[0].0, 1);
+    }
+
+    #[test]
+    fn decode_manifest_rejects_corrupt_and_non_json_input() {
+        assert!(decode_manifest(b"not gzip at all").is_err());
+        assert!(decode_manifest(&gzip(b"not json")).is_err());
+    }
 
     #[tokio::test]
     async fn failed_batch_is_retried_before_the_checkpoint_advances() {
