@@ -8,10 +8,9 @@ You're an expert Software Engineer with deep knowledge of Rust, Distributed Syst
 - **Never** use backticks to quote any code, functions and variables names, etc. in the commit message.
 - Only standard git trailers belong in a commit message (`Signed-off-by`, `Fixes`, `Co-authored-by`, `Link`); never emit tool-generated metadata tags.
 - When a commit repairs a defect introduced by an identifiable earlier commit on `main`, add a Linux-style `Fixes:` trailer naming that commit: `Fixes: <12-char sha> ("<subject>")`, generated with `git log -1 --format='Fixes: %h ("%s")' --abbrev=12 <sha>`. Identify the introducing commit with `git blame` or `git log -S`; if it cannot be identified with confidence, omit the trailer rather than guess. If the defect is also tracked as a Sashiko bug, add a second line `Fixes: <project>-<uuid>`. Trailers form one block at the end of the message, immediately before `Signed-off-by`.
-- After each change if it touches the Rust code make sure the code compiles and all tests pass. Never start a new task with non-clean git status. Clear the context between tasks.
-- Make sure to not commit any logs or temporary files. Before committing, run `make check-pr` (which only runs `yamllint` when YAML files change and only runs Rust lint/tests when Rust or Cargo files change).
-- Before opening or updating a Pull Request, run `sashiko review --project sashiko --agent` in the local agentic loop on the commits being proposed and resolve any reported issues.
-- After opening or updating a Pull Request, check for upstream `sashiko-for-sashiko` review comments posted on GitHub (`gh pr view <num> --json comments,reviews`) and act on every finding: either fix the issue and push an updated commit, or post a reply explaining with concrete code evidence why the finding is a false positive (and ideally propose a prompt or workflow change to `sashiko-for-sashiko` to prevent it).
+- Never start a new task with a non-clean git status.
+- Make sure to not commit any logs or temporary files. Before committing, run `make check-pr`: it verifies `Signed-off-by` on the commit range (`RANGE=HEAD~1..HEAD` by default), runs `yamllint` only when YAML files changed, and runs `fmt`, `clippy` across feature profiles, and the tests only when Rust or Cargo files changed.
+- Every change goes through the two-stage Sashiko-for-Sashiko self-review described under "Development Workflow / 2. Self-Review": the local `sashiko review --project sashiko --agent` loop before opening or updating a PR, and acting on every `sashiko-bot` finding posted on the PR afterwards.
 - Once the task is done, no local changes should remain. Amend them to the previous commit, if it makes sense, make a standalone commit or get rid of them.
 - Each commit should implement one consistent and self-sufficient change. Never create commits like "do X and Y", create 2 commits instead.
 - For any non-trivial feature create a design document first, then review it and then implement it step by step.
@@ -26,7 +25,7 @@ Use `make` to run common development tasks:
 - `make lint`: Run all linters (`clippy`, `fmt`, `yamllint`).
 - `make lint-local` / `make lint-local-cache`: Run `clippy` on minimal local-review feature profiles (`--no-default-features` and `--features cache`).
 - `make test`: Run unit and integration tests (`cargo test --all-features`).
-- `make check-pr`: Run diff-aware PR checks (runs `yamllint` only when YAML files changed, and `fmt`, `clippy` across feature profiles, and `test` only when Rust/Cargo files changed).
+- `make check-pr`: Run diff-aware PR checks (verifies `Signed-off-by` on `RANGE`, runs `yamllint` only when YAML files changed, and `fmt`, `clippy` across feature profiles, and `test` only when Rust/Cargo files changed).
 - `make check-all`: Run the complete suite unconditionally (`lint`, `lint-local`, `lint-local-cache`, `test`, `check-db-invariants`).
 - `make check-db-invariants`: Run lightweight database invariant checks.
 
@@ -35,7 +34,7 @@ Sashiko reviews changes to its own repository using the `--project sashiko` prof
 - **Workflow & Prompts:** Defined by `src/workflows/sashiko_patch_review.rs` and first-party prompt guides under `projects/sashiko/prompts/` (distinct from the vendored upstream prompts in `third_party/prompts/`).
 - **Scope:** Audits Sashiko-specific invariants across subsystems (`projects/sashiko/prompts/subsystem/*.md`) and cross-cutting patterns (`projects/sashiko/prompts/patterns/*.md`), including UX, SQLite migrations and query scaling, email delivery safety, untrusted input boundaries, Tokio/async discipline, and commit message hygiene. Deterministic checks (compilation, borrow checking, formatting, clippy lints) are handled by `make check-pr`.
 - **Stage 1 — Local Agentic Loop:** After `make check-pr` passes, run `sashiko review --project sashiko --agent <commit>` (or `cargo run --bin sashiko -- review --project sashiko --agent <commit>`) locally before opening or updating a PR so the review returns concise, machine-friendly JSON output without interactive prompts or redundant formatting stages. Fix any valid findings, amend or commit, and re-verify until both `make check-pr` and the local self-review pass cleanly.
-- **Stage 2 — Upstream GitHub PR Review:** When a PR is opened or updated on GitHub, the upstream Sashiko instance (`sashiko.sashiko.dev`) automatically reviews the PR and posts findings as PR comments (`sashiko-bot`). PR authors and agents are **required to act on every finding**:
+- **Stage 2 — Upstream GitHub PR Review:** When a PR is opened or updated on GitHub, the upstream Sashiko instance (`sashiko.sashiko.dev`) automatically reviews the PR and posts findings as PR comments (`sashiko-bot`; read them with `gh pr view <num> --json comments,reviews`). PR authors and agents are **required to act on every finding**:
   1. **Valid finding:** Fix the defect in code, re-run `make check-pr` and local self-review, push the updated branch, and reply on the PR confirming the resolution.
   2. **False positive:** Reply on the PR explaining with concrete code evidence why the finding is a false positive, and ideally propose an accompanying or follow-up improvement to the Sashiko-for-Sashiko prompts or workflow (`projects/sashiko/prompts/`, `src/workflows/sashiko_patch_review.rs`) so future reviews do not repeat the false positive.
 
@@ -57,7 +56,7 @@ Sashiko reviews changes to its own repository using the `--project sashiko` prof
 - `lib.rs`: Shared library root and `ReviewStatus` types.
 - `worker/`: Background workers (`bug_worker.rs`, `email.rs`, `forge.rs`, `patchwork.rs`, `compressor.rs`, `repack.rs`, `sync.rs`, `prefetch.rs`, `prompts.rs`).
 - `workflow/`: Core state-machine LLM workflow engine.
-- `workflows/`: Declarative review and bug pipelines per project (`linux_patch_review.rs`, `linux_bug.rs`, `sashiko_patch_review.rs`).
+- `workflows/`: Declarative review and bug pipelines per project (`linux_patch_review.rs`, `linux_bug.rs`, `sashiko_patch_review.rs`), plus shared security/normalization helpers (`guard.rs`) and the review-map lineage builder (`review_map.rs`).
 - `toolbox/`: Agent tools for inspecting git repositories and worktrees.
 - `ai/`: LLM provider integrations, session runner, and response caching.
 - `auth.rs` & `access.rs`: Authentication (`LocalToken`, JWTs) and capability/subsystem bug access control (`Principal`, `BugAccess`).
@@ -73,7 +72,7 @@ Sashiko reviews changes to its own repository using the `--project sashiko` prof
 - `api.rs`: Shared HTTP protocol request/response types (unconditional).
 - `server.rs`: Axum HTTP API server handlers (`#[cfg(feature = "server")]`).
 - `settings.rs`: Application settings and ACL configuration.
-- `project.rs` & `prompt_bundle.rs`: Target project profiles (`linux`, `sashiko`, `systemd`, `iproute2`) and prompt bundle loading.
+- `project.rs` & `prompt_bundle.rs`: Target project profiles (`linux`, `sashiko`) and prompt bundle loading.
 - `events.rs`, `metrics.rs`, `logging.rs`, `compression.rs`, `utils.rs`: Internal event bus, metrics, logging, and utilities.
 
 ## Cargo Feature Profiles
