@@ -1722,17 +1722,19 @@
         <div class="modal-content">
             <span class="modal-close" onclick="closeAuthModal()">&times;</span>
             <div class="about-logo" style="margin-bottom: 16px;">Sign In</div>
-            <div class="note">
-                Enter your email address below to receive a secure sign-in link.
-                <br><br>
-                If your account is authorized, we will email you a link to log in directly without a password.
-            </div>
-            <input type="email" id="authEmailInput" class="search-input" placeholder="Email address (e.g., maintainer@kernel.org)" onkeydown="if(event.key==='Enter') submitAuthRequest()" style="width: 100%; border: 1px solid var(--border); box-sizing: border-box; margin-bottom: 12px; font-size: 14px;">
-            <div id="authMessage" style="font-size: 13px; width: 100%; margin-bottom: 12px; display: none; line-height: 1.4;"></div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                <button type="button" class="btn" onclick="closeAuthModal()">Cancel</button>
-                <button type="button" class="btn primary" id="authSubmitBtn" onclick="submitAuthRequest()">Send Link</button>
-            </div>
+            <form id="authForm" onsubmit="submitAuthRequest(event)">
+                <div class="note" id="authNote">
+                    Enter your email address below to receive a secure sign-in link.
+                    <br><br>
+                    If your account is authorized, we will email you a link to log in directly without a password.
+                </div>
+                <input type="email" id="authEmailInput" class="search-input" placeholder="Email address (e.g., maintainer@kernel.org)" style="width: 100%; border: 1px solid var(--border); box-sizing: border-box; margin-bottom: 12px; font-size: 14px;">
+                <div id="authMessage" style="font-size: 13px; width: 100%; margin-bottom: 16px; display: none; line-height: 1.5;"></div>
+                <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                    <button type="button" class="btn" id="authCancelBtn" onclick="closeAuthModal()">Cancel</button>
+                    <button type="submit" class="btn primary" id="authSubmitBtn">Send Link</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -2186,9 +2188,28 @@
             }
         }
 
+        let authRequestInFlight = false;
+
         function openAuthModal(noticeMessage) {
-            document.getElementById('authEmailInput').value = '';
+            const input = document.getElementById('authEmailInput');
+            const note = document.getElementById('authNote');
+            const submitBtn = document.getElementById('authSubmitBtn');
+            const cancelBtn = document.getElementById('authCancelBtn');
             const msg = document.getElementById('authMessage');
+
+            authRequestInFlight = false;
+            input.value = '';
+            input.disabled = false;
+            input.style.display = 'block';
+            if (note) note.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Send Link';
+            submitBtn.style.display = '';
+            if (cancelBtn) {
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.classList.remove('primary');
+            }
+
             if (noticeMessage) {
                 msg.style.color = 'var(--status-failed)';
                 msg.textContent = noticeMessage;
@@ -2196,20 +2217,31 @@
             } else {
                 msg.style.display = 'none';
             }
-            document.getElementById('authModal').style.display = 'flex';
+            document.getElementById('authModal').classList.add('open');
+            setTimeout(() => input.focus(), 0);
         }
 
         function closeAuthModal() {
-            document.getElementById('authModal').style.display = 'none';
+            document.getElementById('authModal').classList.remove('open');
         }
 
-        async function submitAuthRequest() {
-            const email = document.getElementById('authEmailInput').value.trim();
+        async function submitAuthRequest(event) {
+            if (event) event.preventDefault();
+            if (authRequestInFlight) return;
+
+            const input = document.getElementById('authEmailInput');
+            const email = input.value.trim();
             if (!email) return;
 
+            const note = document.getElementById('authNote');
             const btn = document.getElementById('authSubmitBtn');
+            const cancelBtn = document.getElementById('authCancelBtn');
             const msg = document.getElementById('authMessage');
+
+            authRequestInFlight = true;
+            input.disabled = true;
             btn.disabled = true;
+            btn.textContent = 'Sending...';
             msg.style.display = 'none';
 
             try {
@@ -2220,18 +2252,31 @@
                 });
 
                 if (res.ok) {
+                    if (note) note.style.display = 'none';
+                    input.style.display = 'none';
+                    btn.style.display = 'none';
+                    if (cancelBtn) {
+                        cancelBtn.textContent = 'Close';
+                        cancelBtn.classList.add('primary');
+                        setTimeout(() => cancelBtn.focus(), 0);
+                    }
                     msg.style.color = 'var(--status-reviewed)';
-                    msg.innerHTML = "<b>Sign-in request received.</b><br>If your address is authorized, a sign-in link has been sent to your inbox.";
-                } else {
-                    msg.style.color = 'var(--status-failed)';
-                    msg.textContent = "Error requesting sign-in link: " + res.statusText;
+                    msg.innerHTML = `<b>Sign-in request received.</b><br>If <code>${escapeHtml(email)}</code> is authorized, a sign-in link has been sent to your inbox.`;
+                    msg.style.display = 'block';
+                    return;
                 }
+                msg.style.color = 'var(--status-failed)';
+                msg.textContent = "Error requesting sign-in link: " + res.statusText;
             } catch (e) {
                 msg.style.color = 'var(--status-failed)';
                 msg.textContent = "Error: " + e.message;
+            } finally {
+                authRequestInFlight = false;
             }
             msg.style.display = 'block';
+            input.disabled = false;
             btn.disabled = false;
+            btn.textContent = 'Send Link';
         }
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -2696,6 +2741,7 @@
 
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
+                closeAuthModal();
                 closeAbout();
                 closeWhatsNewModal();
             }
