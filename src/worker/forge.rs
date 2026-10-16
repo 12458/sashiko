@@ -112,7 +112,16 @@ impl ForgeWorker {
 
     pub async fn run(&self) {
         info!("Starting Forge Worker...");
-        let client = reqwest::Client::new();
+        // Every GitHub call below (token exchange and comment posting) is
+        // awaited inline by this sequential loop, so the client must bound
+        // each request or a silent remote stalls the whole outbox.
+        let client = match crate::worker::outbox_client() {
+            Ok(client) => client,
+            Err(e) => {
+                error!("Failed to build forge HTTP client: {}", e);
+                return;
+            }
+        };
         loop {
             if let Err(e) = self.db.sweep_ghost_forge_outbox().await {
                 error!("Failed to sweep ghost forge outbox entries: {}", e);
