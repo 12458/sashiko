@@ -48,6 +48,8 @@ pub fn split_mbox(raw: &[u8]) -> Vec<Vec<u8>> {
     emails
 }
 
+// Note that when changing this function, we also need to update the copy
+// in sashiko-cli. See the comments in sashiko-cli for more details.
 pub fn is_mbox_separator(line: &[u8]) -> bool {
     if !line.starts_with(b"From ") {
         return false;

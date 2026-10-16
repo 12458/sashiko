@@ -964,7 +964,11 @@ fn split_mbox(raw: &[u8]) -> Vec<&[u8]> {
     emails
 }
 
-// Reference from mbox::is_mbox_separator() to have an aligned checking
+// Although src/mbox.rs has the same function and is public, the function
+// is behide the server feature gating. Therefore, we need to add a lot of
+// conditional compilations to just use it, this might increase maintenance
+// workload. Thus, maintain the copy here.
+// Reference from mbox::is_mbox_separator() to have an aligned checking.
 fn is_mbox_separator(line: &[u8]) -> bool {
     if !line.starts_with(b"From ") {
         return false;
