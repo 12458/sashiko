@@ -48,15 +48,49 @@ pub fn split_mbox(raw: &[u8]) -> Vec<Vec<u8>> {
     emails
 }
 
-// Note that when changing this function, we also need to update the copy
-// in sashiko-cli. See the comments in sashiko-cli for more details.
+/// mbox separator lines normally contain a timestamp in traditional
+/// UNIX ctime output format:
+///
+/// "From <sender> DDD MMM [D]D HH:MM:SS YYYY"
+///
+/// Requiring "From ", the space delimiters, a valid day string,
+/// and HH:MM:SS colons avoids splitting on ordinary body text or
+/// email headers with minimal overhead.
+///
+/// Note that when changing this function, we also need to update the copy
+/// in sashiko-cli. See the comments in sashiko-cli for more details.
 pub fn is_mbox_separator(line: &[u8]) -> bool {
     if !line.starts_with(b"From ") {
         return false;
     }
-    // Mbox separator lines normally contain a timestamp. Requiring an
-    // HH:MM:SS-like value avoids splitting on ordinary body text.
-    line.iter().filter(|&&b| b == b':').count() >= 2
+
+    let mut line = line;
+    while let [rest @ .., b'\r' | b'\n'] = line {
+        line = rest;
+    }
+
+    let len = line.len();
+
+    if len < 30 {
+        return false;
+    }
+
+    // Check colons in HH:MM:SS and the space before YYYY
+    if line[len - 8] != b':' || line[len - 11] != b':' || line[len - 5] != b' ' {
+        return false;
+    }
+
+    const DAYS: [&[u8]; 7] = [
+        b"Mon ", b"Tue ", b"Wed ", b"Thu ", b"Fri ", b"Sat ", b"Sun ",
+    ];
+
+    // 2-digit / space-padded day (e.g. "From <sender> Thu Jan  1 00:00:00 1970")
+    if len >= 31 && line[len - 25] == b' ' && DAYS.contains(&&line[len - 24..len - 20]) {
+        return true;
+    }
+
+    // 1-digit day (e.g. "From <sender> Mon Jan 1 00:00:00 2023")
+    line[len - 24] == b' ' && DAYS.contains(&&line[len - 23..len - 19])
 }
 
 #[derive(Clone)]
@@ -485,5 +519,75 @@ mod tests {
         assert!(error.to_string().contains("503"));
         assert_eq!(requests.len(), 3);
         Ok(())
+    }
+
+    #[test]
+    fn test_is_mbox_separator() {
+        // Valid 2-digit day
+        assert!(is_mbox_separator(
+            b"From test@example.com Thu May 14 12:00:00 2026\n"
+        ));
+        // Valid space-padded day
+        assert!(is_mbox_separator(
+            b"From mboxrd@z Thu Jan  1 00:00:00 1970\n"
+        ));
+        // Valid 1-digit day
+        assert!(is_mbox_separator(
+            b"From user@example.com Mon Jan 1 00:00:00 2023\n"
+        ));
+        // Valid with CRLF (\r\n)
+        assert!(is_mbox_separator(
+            b"From user@example.com Mon Jan 1 00:00:00 2023\r\n"
+        ));
+        // Valid without trailing newline
+        assert!(is_mbox_separator(
+            b"From user@example.com Mon Jan 1 00:00:00 2023"
+        ));
+
+        // Valid with multi-byte UTF-8 sender (accents, CJK, emoji)
+        assert!(is_mbox_separator(
+            "From préfix.postfix@example.com Thu May 14 12:00:00 2026\n".as_bytes()
+        ));
+        assert!(is_mbox_separator(
+            "From 測試@example.com Mon Jan 1 00:00:00 2023\n".as_bytes()
+        ));
+        assert!(is_mbox_separator(
+            "From user-🚀@example.com Thu Jan  1 00:00:00 1970\n".as_bytes()
+        ));
+        // Valid with non-UTF-8 byte sequence in sender (ISO-8859-1)
+        assert!(is_mbox_separator(
+            b"From prefix\xe7postfix@example.com Thu May 14 12:00:00 2026\n"
+        ));
+
+        // Negative cases
+        assert!(!is_mbox_separator(b"From: user@example.com\n"));
+        assert!(!is_mbox_separator(b"Subject: Test\n"));
+        assert!(!is_mbox_separator(b"Some body text\n"));
+        assert!(!is_mbox_separator(b"From \n"));
+        assert!(!is_mbox_separator(b"From user\n"));
+        // Invalid Day
+        assert!(!is_mbox_separator(
+            b"From user@example.com Foo Jan 1 00:00:00 2023\n"
+        ));
+        // Missing colon in time
+        assert!(!is_mbox_separator(
+            b"From user@example.com Mon Jan 1 00-00:00 2023\n"
+        ));
+        // Ordinary text starting with "From " and having 2 colons but no day
+        assert!(!is_mbox_separator(
+            b"From time to time, we encounter: error code: 404\n"
+        ));
+        // Multi-byte text with colons in body
+        assert!(!is_mbox_separator(
+            "From café to café, we ran: 12:00:00 and 13:00:00\n".as_bytes()
+        ));
+        // Fullwidth colon (U+FF1A, 3 bytes: 0xEF 0xBC 0x9A) instead of ASCII colon
+        assert!(!is_mbox_separator(
+            "From user@example.com Mon Jan 1 00：00：00 2023\n".as_bytes()
+        ));
+        // Multi-byte character appearing where Day should be
+        assert!(!is_mbox_separator(
+            "From user@example.com 星期一 Jan 1 00:00:00 2023\n".as_bytes()
+        ));
     }
 }
