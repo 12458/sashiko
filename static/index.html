@@ -1638,7 +1638,29 @@
             line-height: 1.5;
             margin-bottom: 20px;
         }
-        #bugActionModal .modal-content { max-width: 480px; }
+        .bug-action-panel {
+            position: relative;
+            margin-top: 12px;
+            padding: 16px;
+        }
+        .bug-action-panel input[type="text"],
+        .bug-action-panel input[type="email"],
+        .bug-action-panel textarea {
+            background: var(--input-bg);
+            color: var(--text);
+            font-family: inherit;
+            font-size: inherit;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 6px 8px;
+            box-sizing: border-box;
+        }
+        .bug-action-panel textarea {
+            width: 100%;
+            min-height: 140px;
+            line-height: 1.4;
+            resize: vertical;
+        }
         button.primary,
         .btn.primary {
             background: var(--link);
@@ -1823,39 +1845,6 @@
                     </a>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <div id="bugActionModal" class="modal-overlay" onclick="if(event.target===this) closeBugActionModal()">
-        <div class="modal-content">
-            <span class="modal-close" onclick="closeBugActionModal()">&times;</span>
-            <div class="about-logo" id="bugActionTitle" style="margin-bottom: 24px;">Action</div>
-            
-            <form id="bugActionForm" onsubmit="submitBugAction(event)">
-                <input type="hidden" id="bugActionType" value="">
-                <input type="hidden" id="bugActionTargetId" value="">
-                
-                <div id="bugActionDuplicateSection" style="display: none; margin-bottom: 16px;">
-                    <div style="margin-bottom: 8px;"><strong>Canonical Bug ID:</strong></div>
-                    <input type="text" id="bugActionDuplicateId" class="search-input" placeholder="linux-…" style="width: 100%; border: 1px solid var(--border); box-sizing: border-box;" step="1">
-                    <div style="font-size: 0.85em; color: var(--text-muted); margin-top: 4px;">Paste the bug ID shown at the top of the existing bug.</div>
-                </div>
-
-                <div id="bugActionAssignSection" style="display: none; margin-bottom: 16px;">
-                    <div style="margin-bottom: 8px;"><strong>Assignee email:</strong></div>
-                    <input type="email" id="bugActionAssignee" class="search-input" placeholder="developer@example.org" style="width: 100%; border: 1px solid var(--border); box-sizing: border-box;">
-                    <div style="font-size: 0.85em; color: var(--text-muted); margin-top: 4px;">Leave empty to unassign.</div>
-                </div>
-
-                <div style="margin-bottom: 8px;"><strong id="bugActionReasonLabel">Reason / Comment:</strong></div>
-                <textarea id="bugActionReason" class="search-input" style="width: 100%; height: 120px; border: 1px solid var(--border); box-sizing: border-box; resize: vertical;" placeholder="Add reasoning or context..."></textarea>
-                
-                <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;">
-                    <button type="button" class="btn" onclick="closeBugActionModal()">Cancel</button>
-                    <button type="submit" class="btn primary" id="bugActionSubmitBtn">Submit</button>
-                </div>
-                <div id="bugActionError" style="color: var(--status-failed); margin-top: 12px; display: none;"></div>
-            </form>
         </div>
     </div>
 
@@ -5134,6 +5123,36 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
                 <div class="controls" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-light);">
                     ${actionButtonsHtml}
                 </div>
+
+                <div id="bugActionPanel" class="review-card bug-action-panel" style="display: none;">
+                    <span class="modal-close" onclick="closeBugActionModal()" title="Hide form (draft is saved)" style="top: 10px; right: 12px;">&times;</span>
+                    <h3 id="bugActionTitle" style="margin-top: 0; margin-bottom: 12px; font-size: 1.05em;">Action</h3>
+                    <form id="bugActionForm" onsubmit="submitBugAction(event)">
+                        <input type="hidden" id="bugActionType" value="">
+                        <input type="hidden" id="bugActionTargetId" value="">
+
+                        <div id="bugActionDuplicateSection" style="display: none; margin-bottom: 12px;">
+                            <div style="margin-bottom: 6px;"><strong>Canonical Bug ID:</strong></div>
+                            <input type="text" id="bugActionDuplicateId" placeholder="linux-…" oninput="saveBugActionDraft()" style="width: 100%; max-width: 400px;">
+                            <div style="font-size: 0.85em; color: var(--text-muted); margin-top: 4px;">Paste the bug ID shown at the top of the existing bug.</div>
+                        </div>
+
+                        <div id="bugActionAssignSection" style="display: none; margin-bottom: 12px;">
+                            <div style="margin-bottom: 6px;"><strong>Assignee email:</strong></div>
+                            <input type="email" id="bugActionAssignee" placeholder="developer@example.org" oninput="saveBugActionDraft()" style="width: 100%; max-width: 400px;">
+                            <div style="font-size: 0.85em; color: var(--text-muted); margin-top: 4px;">Leave empty to unassign.</div>
+                        </div>
+
+                        <div style="margin-bottom: 6px;"><strong id="bugActionReasonLabel">Reason / Comment:</strong></div>
+                        <textarea id="bugActionReason" oninput="saveBugActionDraft()" placeholder="Add reasoning or context..."></textarea>
+
+                        <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
+                            <button type="button" class="btn" onclick="closeBugActionModal()">Cancel</button>
+                            <button type="submit" class="btn primary" id="bugActionSubmitBtn">Submit</button>
+                        </div>
+                        <div id="bugActionError" style="color: var(--status-failed); margin-top: 10px; display: none;"></div>
+                    </form>
+                </div>
             `;
         }
 
@@ -6726,6 +6745,44 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
         loadSettings();
         initWhatsNewBanner();
         fetchConfig().then(router);
+        function getBugActionDraft(id) {
+            if (!state.bugActionDrafts) state.bugActionDrafts = {};
+            const key = String(id || '');
+            if (!state.bugActionDrafts[key]) {
+                state.bugActionDrafts[key] = { reasons: {} };
+            }
+            return state.bugActionDrafts[key];
+        }
+
+        function saveBugActionDraft() {
+            const typeEl = document.getElementById('bugActionType');
+            const idEl = document.getElementById('bugActionTargetId');
+            const reasonEl = document.getElementById('bugActionReason');
+            if (!typeEl || !idEl || !reasonEl) return;
+            const action = typeEl.value;
+            const id = idEl.value;
+            if (!action || !id) return;
+
+            const draft = getBugActionDraft(id);
+            draft.reasons[action] = reasonEl.value;
+            if (action === 'mark_duplicate') {
+                const dupEl = document.getElementById('bugActionDuplicateId');
+                if (dupEl) draft.duplicateId = dupEl.value;
+            } else if (action === 'assign') {
+                const assignEl = document.getElementById('bugActionAssignee');
+                if (assignEl) draft.assignee = assignEl.value;
+            }
+        }
+
+        function clearBugActionDraft(id, action) {
+            if (!state.bugActionDrafts || !id) return;
+            const draft = state.bugActionDrafts[String(id)];
+            if (!draft) return;
+            if (draft.reasons) delete draft.reasons[action];
+            if (action === 'mark_duplicate') delete draft.duplicateId;
+            if (action === 'assign') delete draft.assignee;
+        }
+
         function openBugActionModal(action, id) {
             if (action === 'comment') {
                 if (state.currentBugCanComment !== undefined && !state.currentBugCanComment) {
@@ -6742,11 +6799,23 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
                 alert(getActionDisabledTitle());
                 return;
             }
+
+            const panel = document.getElementById('bugActionPanel');
+            if (!panel) return;
+            if (panel.style.display !== 'none') {
+                saveBugActionDraft();
+            }
+
+            const draft = getBugActionDraft(id);
+            const dupInput = document.getElementById('bugActionDuplicateId');
+            const assignInput = document.getElementById('bugActionAssignee');
+            const reasonArea = document.getElementById('bugActionReason');
+
             document.getElementById('bugActionType').value = action;
             document.getElementById('bugActionTargetId').value = id;
-            document.getElementById('bugActionReason').value = '';
-            document.getElementById('bugActionDuplicateId').value = '';
-            document.getElementById('bugActionAssignee').value = '';
+            reasonArea.value = (draft.reasons && draft.reasons[action]) || '';
+            dupInput.value = draft.duplicateId || '';
+            assignInput.value = draft.assignee !== undefined ? draft.assignee : (state.currentBugAssignee || '');
             document.getElementById('bugActionError').style.display = 'none';
             document.getElementById('bugActionSubmitBtn').disabled = false;
             
@@ -6754,10 +6823,10 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
             const reasonLabelEl = document.getElementById('bugActionReasonLabel');
             const dupSection = document.getElementById('bugActionDuplicateSection');
             const assignSection = document.getElementById('bugActionAssignSection');
-            const reasonArea = document.getElementById('bugActionReason');
 
             dupSection.style.display = 'none';
             assignSection.style.display = 'none';
+            let focusTarget = reasonArea;
             
             if (action === 'comment') {
                 titleEl.textContent = 'Add Comment';
@@ -6776,21 +6845,24 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
                 reasonLabelEl.textContent = 'Reason (optional):';
                 reasonArea.placeholder = 'Explain why it is a duplicate...';
                 dupSection.style.display = 'block';
+                focusTarget = dupInput;
             } else if (action === 'assign') {
                 titleEl.textContent = 'Assign Bug';
                 reasonLabelEl.textContent = 'Reason (optional):';
                 reasonArea.placeholder = 'Why is this being assigned? If the assignee is notified by email, this note is included.';
                 assignSection.style.display = 'block';
-                // Prefill with the current assignee so the field doubles as a
-                // reassignment form rather than always starting blank.
-                document.getElementById('bugActionAssignee').value = state.currentBugAssignee || '';
+                focusTarget = assignInput;
             }
             
-            document.getElementById('bugActionModal').classList.add('open');
+            panel.style.display = 'block';
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            setTimeout(() => focusTarget.focus(), 0);
         }
 
         function closeBugActionModal() {
-            document.getElementById('bugActionModal').classList.remove('open');
+            saveBugActionDraft();
+            const panel = document.getElementById('bugActionPanel');
+            if (panel) panel.style.display = 'none';
         }
 
         async function submitBugAction(event) {
@@ -6884,6 +6956,7 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
                 }
                 
                 closeBugActionModal();
+                clearBugActionDraft(id, action);
                 await renderBugView(id, action === 'comment' ? 'comments' : undefined);
                 
             } catch (e) {
