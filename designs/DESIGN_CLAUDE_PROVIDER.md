@@ -75,9 +75,14 @@ appear in the response usage as `cache_read_input_tokens` and
 
 ### Claude CLI Provider (`src/ai/claude_cli.rs`)
 
-`ClaudeCliProvider` shells out to the `claude --print` command, which runs
-in text-completion mode (no tools, no file access, no session persistence).
-The CLI reads a prompt from stdin and writes JSON to stdout.
+`ClaudeCliProvider` shells out to `claude --print`, reading the prompt from
+stdin and JSON from stdout. Print mode alone does not disable agent features:
+the provider explicitly disables built-in tools and user/project
+customizations, and runs each request in a fresh temporary directory without
+session persistence. These are CLI capability restrictions, not an operating
+system sandbox. Authentication and managed policy remain the CLI's
+responsibility; see [provider configuration](../docs/llm-providers.md#claude-code-cli)
+for the settings and managed-policy compatibility boundaries.
 
 #### Prompt Construction
 
@@ -125,3 +130,5 @@ Tests are in `src/ai/claude.rs` and `src/ai/claude_cli.rs`:
 - Response translation (text, tool calls, thinking, usage with cache)
 - Cache control (applied when enabled, absent when disabled)
 - `build_prompt()` format instructions (with/without tools, with/without JSON format)
+- Subprocess restrictions, prompt transport and scratch-directory cleanup
+  on success and failure (`src/ai/claude_cli/process_tests.rs`)

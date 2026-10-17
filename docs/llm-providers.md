@@ -93,7 +93,20 @@ Context window sizes:
 
 - No API key needed -- uses Claude Code's subscription auth.
 - Stateless: spawns `claude --print --output-format json` per request.
-  No tool access, no file access, no session reuse.
+  Built-in tools and user/project customizations (MCP servers, skills, hooks,
+  instruction files and automatic memory) are disabled explicitly. Each call
+  runs in a fresh temporary working directory with no session reuse.
+  This invocation was validated with Claude Code 2.1.170.
+- Earlier claude-cli response-cache entries are not reused with this restricted
+  completion profile; responses are regenerated on the next request.
+- User/project settings are not loaded. CLI subscription credentials and
+  inherited environment variables still supply authentication and provider
+  routing. If authentication or routing depended on settings-based environment
+  variables or an API key helper, supply the equivalent credentials and routing
+  through the invoking environment instead.
+- Managed policy remains authoritative: mandatory hooks and instructions may
+  still apply, and managed MCP configurations can cause strict MCP mode to
+  reject startup.
 - Prompt caching handled automatically by Claude Code.
 - `effort` controls the model's thinking budget. Opus 4.7 uses adaptive
   thinking; Sonnet 4.6 and Haiku 4.5 use extended thinking. If you need

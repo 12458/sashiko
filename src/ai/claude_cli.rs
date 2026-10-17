@@ -17,11 +17,14 @@
 //!
 //! ## Safety
 //!
-//! The prompt carries patch text from anyone who can post to a reviewed list,
-//! so the CLI must not act on it. `--print` alone keeps Claude Code's built-in
-//! tools (Bash, file read and edit); `build_claude_args` removes them with
-//! `--tools ""` and removes MCP tools with `--disallowedTools "mcp__*"` and
-//! `--strict-mcp-config`, leaving a text-completion backend.
+//! The prompt carries untrusted patch text; `--print` alone keeps native tools.
+//! `build_claude_args` disables tools and user/project MCP, skills, hooks,
+//! instructions and automatic memory. Requests run in fresh temporary directories.
+//! CLI authentication and inherited environment remain available for routing.
+//! Managed policy remains authoritative, including mandatory hooks and
+//! instructions; managed MCP configurations can prevent strict-mode startup.
+//! These restrictions disable agent functionality, not operating-system
+//! access: the CLI is still trusted to read credentials and contact the model.
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -43,6 +46,8 @@ use crate::utils::{redact_secret, utf8_prefix};
 pub enum ClaudeCliError {
     #[error("Failed to spawn claude CLI: {0}")]
     Spawn(String),
+    #[error("Failed to create claude CLI working directory: {0}")]
+    WorkingDirectory(#[source] std::io::Error),
     #[error("claude CLI timed out after 10 minutes")]
     Timeout,
     #[error("claude CLI wait error: {0}")]
@@ -57,6 +62,25 @@ impl ClassifyAiError for ClaudeCliError {
     fn ai_error_class(&self) -> AiErrorClass {
         match self {
             ClaudeCliError::Spawn(_) => AiErrorClass::Fatal,
+            ClaudeCliError::WorkingDirectory(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::PermissionDenied
+                        | std::io::ErrorKind::NotFound
+                        | std::io::ErrorKind::InvalidInput
+                        | std::io::ErrorKind::InvalidFilename
+                        | std::io::ErrorKind::NotADirectory
+                        | std::io::ErrorKind::ReadOnlyFilesystem
+                        | std::io::ErrorKind::Unsupported
+                ) =>
+            {
+                AiErrorClass::Fatal
+            }
+            // Resource pressure can clear during backoff, including OS errors
+            // that std::io does not map to a more specific ErrorKind.
+            ClaudeCliError::WorkingDirectory(_) => AiErrorClass::Transient {
+                retry_after: Duration::from_secs(30),
+            },
             ClaudeCliError::Timeout => AiErrorClass::Transient {
                 retry_after: Duration::from_secs(30),
             },
@@ -115,18 +139,30 @@ pub struct ClaudeCliProvider {
 /// Returns the argv passed to `claude` (the prompt goes on stdin). Extracted
 /// so tests can assert that no tool survives.
 pub fn build_claude_args(model: &str, effort: Option<&str>) -> Vec<String> {
+    // Isolation arguments/settings verified with Claude Code 2.1.170.
     let mut args = vec![
         "--print".to_string(),
         "--output-format".to_string(),
         "json".to_string(),
         "--no-session-persistence".to_string(),
-        "--settings".to_string(),
-        r#"{"verbose":false}"#.to_string(),
         "--tools".to_string(),
         String::new(),
         "--disallowedTools".to_string(),
         "mcp__*".to_string(),
         "--strict-mcp-config".to_string(),
+        "--mcp-config".to_string(),
+        r#"{"mcpServers":{}}"#.to_string(),
+        "--setting-sources".to_string(),
+        String::new(),
+        "--disable-slash-commands".to_string(),
+        "--settings".to_string(),
+        serde_json::json!({
+            "verbose": false,
+            "disableAllHooks": true,
+            "autoMemoryEnabled": false,
+            "claudeMdExcludes": ["**"],
+        })
+        .to_string(),
         "--model".to_string(),
         model.to_string(),
     ];
@@ -139,15 +175,21 @@ pub fn build_claude_args(model: &str, effort: Option<&str>) -> Vec<String> {
     args
 }
 
-#[async_trait]
-impl AiProvider for ClaudeCliProvider {
-    async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
+impl ClaudeCliProvider {
+    async fn generate_content_with_binary(
+        &self,
+        request: AiRequest,
+        binary: &std::ffi::OsStr,
+        call_timeout: Duration,
+    ) -> Result<AiResponse> {
         let prompt = build_prompt(&request);
 
         debug!("claude-cli prompt length: {} chars", prompt.len());
 
-        let mut child = Command::new("claude")
+        let working_directory = tempfile::tempdir().map_err(ClaudeCliError::WorkingDirectory)?;
+        let child = Command::new(binary)
             .args(build_claude_args(&self.model, self.effort.as_deref()))
+            .current_dir(working_directory.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -155,17 +197,10 @@ impl AiProvider for ClaudeCliProvider {
             .spawn()
             .map_err(|e| ClaudeCliError::Spawn(e.to_string()))?;
 
-        // Write prompt to stdin then close it
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(prompt.as_bytes()).await?;
-            stdin.flush().await?;
-        }
-
-        // 10-minute timeout per CLI call — a hung claude process won't block forever
-        let output = timeout(Duration::from_secs(600), child.wait_with_output())
+        // Bound both prompt transfer and output collection by the same deadline.
+        let output = timeout(call_timeout, collect_cli_output(child, &prompt))
             .await
-            .map_err(|_| ClaudeCliError::Timeout)?
-            .map_err(|e| ClaudeCliError::Wait(e.to_string()))?;
+            .map_err(|_| ClaudeCliError::Timeout)??;
 
         let stderr = log_and_redact_stderr("claude-cli", &output.stderr);
         let raw = String::from_utf8_lossy(&output.stdout);
@@ -182,6 +217,18 @@ impl AiProvider for ClaudeCliProvider {
         // Parse the inner response — tool calls or content
         parse_inner_response(&result_text, usage)
     }
+}
+
+#[async_trait]
+impl AiProvider for ClaudeCliProvider {
+    async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
+        self.generate_content_with_binary(
+            request,
+            std::ffi::OsStr::new("claude"),
+            Duration::from_secs(600),
+        )
+        .await
+    }
 
     fn get_capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
@@ -191,8 +238,39 @@ impl AiProvider for ClaudeCliProvider {
     }
 
     fn cache_identity(&self) -> String {
-        cache_identity_with(&self.model, &[("effort", self.effort.as_deref())])
+        // Responses produced with ambient tools/settings must not be replayed
+        // for requests using the restricted completion profile.
+        cache_identity_with(
+            &self.model,
+            &[
+                ("effort", self.effort.as_deref()),
+                ("completion_profile", Some("restricted-v1")),
+            ],
+        )
     }
+}
+
+async fn collect_cli_output(
+    mut child: tokio::process::Child,
+    prompt: &str,
+) -> Result<std::process::Output, ClaudeCliError> {
+    let stdin = child.stdin.take();
+    let write_prompt = async move {
+        if let Some(mut stdin) = stdin {
+            stdin.write_all(prompt.as_bytes()).await?;
+            stdin.flush().await?;
+        }
+        Ok::<(), std::io::Error>(())
+    };
+    // Drain output while feeding stdin; the CLI may emit startup errors first.
+    let (written, output) = tokio::join!(write_prompt, child.wait_with_output());
+    let output = output.map_err(|error| ClaudeCliError::Wait(error.to_string()))?;
+    // Preserve CLI diagnostics on failure, even when it closed stdin early.
+    if output.status.success() {
+        written
+            .map_err(|error| ClaudeCliError::Wait(format!("failed to write prompt: {error}")))?;
+    }
+    Ok(output)
 }
 
 fn parse_cli_output(raw: &str) -> Result<Value, ClaudeCliError> {
@@ -492,6 +570,12 @@ fn extract_json(text: &str) -> String {
     }
     normalized.trim().to_string()
 }
+
+#[cfg(all(test, unix))]
+mod process_tests;
+
+#[cfg(test)]
+mod isolation_tests;
 
 #[cfg(test)]
 mod tests {
