@@ -28,6 +28,7 @@ cargo run --bin benchmark -- --file benchmarks/benchmark_small.json
 | `benchmarks/benchmark_tiny.json` | Minimal set for quick smoke tests. |
 | `benchmarks/benchmark_small.json` | Small set for development iteration. |
 | `benchmarks/benchmark.json` | Full benchmark suite. |
+| `benchmarks/benchmark_missed.json` | Upstream fixes for bugs missed by Sashiko after public launch. |
 | `benchmarks/benchmark_preexisting.json` | Tests detection of pre-existing bugs. |
 | `benchmarks/benchmark_smoke.json` | CI smoke test set. |
 

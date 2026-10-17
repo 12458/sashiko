@@ -1,0 +1,2678 @@
+[
+    {
+        "Commit": "712da38d134b6681946368dd5c9400b43eb772b0",
+        "Fixed-by": "bcec7fc2e224088daf94448d663b02e0d0b9c717",
+        "subsystem": "fs/9p",
+        "problem_description": "Use-after-free of the 9p session structure during RCU pathwalk because v9fs_kill_super frees it without an RCU grace period while v9fs_vfs_get_link_dotl accesses it."
+    },
+    {
+        "Commit": "cb86607ada73185f321baa7f9d94a08a3a40bbf5",
+        "Fixed-by": "2935062be77113c1c4565ca9d0c72180449aafee",
+        "subsystem": "sched/ext",
+        "problem_description": "Race condition in sched_ext where DSQ consume and move paths can operate on a task concurrently with the dispatcher because they do not wait for SCX_OPSS_DISPATCHING to clear."
+    },
+    {
+        "Commit": "eddba19b8b5f76d57424ee328a68fd495c5db857",
+        "Fixed-by": "7209846a169f82cb2f3841778573d36944185892",
+        "subsystem": "pci",
+        "problem_description": "Unmasking Advisory Non-Fatal Errors during PCI AER initialization causes spontaneous power loss on Apple T2 Secure Enclave devices."
+    },
+    {
+        "Commit": "eddba19b8b5f76d57424ee328a68fd495c5db857",
+        "Fixed-by": "79c168e2aa957ed0054c93db17caba653b95e377",
+        "subsystem": "pci/aer",
+        "problem_description": "Unnecessary PCIe error recovery is triggered on false alarms when no unmasked errors are actually signaled, leading to device probe failures."
+    },
+    {
+        "Commit": "da729ddd4a1bc7c9f119bf7dfcc2c173b887cafa",
+        "Fixed-by": "d1a4549a3645e55cc9ade09e360280590b3c9559",
+        "subsystem": "workqueue",
+        "problem_description": "NULL pointer dereference in current_is_workqueue_mem_reclaim because a kworker outside work-item execution can have a NULL current_pwq."
+    },
+    {
+        "Commit": "0fa749771993033befb9dda60b023782cb5fd2d9",
+        "Fixed-by": "07e23d0b6f58eec351e52058b9a0a8af7b019c09",
+        "subsystem": "riscv",
+        "problem_description": "The NR_CPUS Kconfig range allows the 64-bit default value of 256 to leak into 32-bit builds, causing percpu area bloat and early boot hangs."
+    },
+    {
+        "Commit": "ae571cd6015c6ebb023a4b9ccd49125b7cf93610",
+        "Fixed-by": "28eed9906e01d01cbdfb352e799413b2e8b33b76",
+        "subsystem": "selftests/mm",
+        "problem_description": "Incorrect format specifier %lu is used for a size_t variable in hugetlb-mmap, causing -Wformat compiler warnings on 32-bit builds."
+    },
+    {
+        "Commit": "9e4a3ec3411bb6bb59e3c1f29b75609f1e87aac4",
+        "Fixed-by": "2fb552b0bee70c24c092720028ab4620f5eb2646",
+        "subsystem": "mm",
+        "problem_description": "NULL pointer dereference in __queue_work during early boot because pagetable_free_kernel attempts to schedule work on an uninitialized workqueue."
+    },
+    {
+        "Commit": "b4bde5cfff8e43e948219f0a598e4bf057ecfba4",
+        "Fixed-by": "94b6df050433875f493fb8298b58d7b0dc32eb9c",
+        "subsystem": "spi",
+        "problem_description": "The FlexSPI DLL calibration fails because it is executed while the module is in stop mode, which gates the required serial root clock."
+    },
+    {
+        "Commit": "1ae8c4ce157037e266184064a182af9ef9af278b",
+        "Fixed-by": "40cce45b921f7930886bcba43069edc579725457",
+        "subsystem": "pci",
+        "problem_description": "pci_enable_atomic_ops_to_root() incorrectly fails when no Root Port is visible in passthrough guests, preventing drivers from using supported AtomicOps."
+    },
+    {
+        "Commit": "818e0084822742fc00eacbf5df3476a5e72c7d0e",
+        "Fixed-by": "de020dc8049bfb2b22e3b6d99c031feb2e22d112",
+        "subsystem": "bpf",
+        "problem_description": "Missing migration protection in __rhtab_map_lookup_and_delete_batch allows tasks to migrate between CPUs during the delete loop, triggering a BUG when this_cpu_ptr is called in preemptible code."
+    },
+    {
+        "Commit": "78a38cbf6f20bc8247e93d1149f97c12dba9fbfb",
+        "Fixed-by": "26f90559a77cac4b8fdfa3491732b7c7e08210ac",
+        "subsystem": "rcu",
+        "problem_description": "False positive WARN_ON in cleanup_srcu_struct due to using the racy rcu_segcblist_n_cbs instead of rcu_segcblist_empty to check for pending callbacks."
+    },
+    {
+        "Commit": "3a6f6eeb3db51f0f8153636280edee00720c3986",
+        "Fixed-by": "eaeac1498b289b342449b678a567a9012360f91a",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "Using multiple SDMA schedulers for TTM entities causes random buffer object corruption with DCC on gfx12 hardware."
+    },
+    {
+        "Commit": "20df21a482aa1cf730ea68adbf49ed5bc4c3ba14",
+        "Fixed-by": "572af6872e520c7102e58362ef7cd7c2ed4342be",
+        "subsystem": "crypto",
+        "problem_description": "Library-based AES encryption modes incorrectly override architecture-optimized implementations due to crypto API template priority handling, causing performance regressions."
+    },
+    {
+        "Commit": "8ca62072faa17984f1a27bf9c74a37fa22606c31",
+        "Fixed-by": "572af6872e520c7102e58362ef7cd7c2ed4342be",
+        "subsystem": "crypto",
+        "problem_description": "Library-based AES modes incorrectly override architecture-optimized implementations instantiated via templates due to limitations in the cra_priority mechanism, causing performance regressions."
+    },
+    {
+        "Commit": "f70ad727d1d60a4dfcb1a22152d4169f9a205af9",
+        "Fixed-by": "572af6872e520c7102e58362ef7cd7c2ed4342be",
+        "subsystem": "crypto",
+        "problem_description": "Library-based AES implementations incorrectly override architecture-optimized implementations due to template instantiation priority issues, causing performance regressions."
+    },
+    {
+        "Commit": "94efa0c9fb36b0f8be480f24bce2bb673005bfde",
+        "Fixed-by": "572af6872e520c7102e58362ef7cd7c2ed4342be",
+        "subsystem": "crypto",
+        "problem_description": "Registering library-based AES encryption modes overrides architecture-optimized implementations instantiated via templates, leading to unintended use of slower single-block AES code."
+    },
+    {
+        "Commit": "2e1d2e65e773d67dab163127f11a47dab0fbca9f",
+        "Fixed-by": "bc8ce2cea5f77c4bd1a5184705e300e83546c0c4",
+        "subsystem": "ata",
+        "problem_description": "Failed ATAPI commands completed through libata EH erroneously complete with a GOOD status byte instead of CHECK CONDITION because atapi_qc_complete() incorrectly relies on cmd->result being zero."
+    },
+    {
+        "Commit": "871df5007edaacaf2eac58a2871af6044a444ad4",
+        "Fixed-by": "3ae37eafd36694bb2d3227f60ac98fbf602470a2",
+        "subsystem": "net/netfilter",
+        "problem_description": "The commit removed a fallback mechanism for forward path discovery, breaking flowtable hardware offload for ieee80211 wireless devices."
+    },
+    {
+        "Commit": "1e3b9e1c77fe262c6999c50f6f23c20f96faf5ce",
+        "Fixed-by": "86b6471e690c67d4c5a1892993f34e080f1eae9d",
+        "subsystem": "net/netfilter",
+        "problem_description": "A use-after-free occurs in the netfilter rbtree set because the garbage collector can scan and free newly added elements that are still in a transaction state before they are fully activated."
+    },
+    {
+        "Commit": "3d9e043dab0a038a53a43570f60bbf4b1e27d63f",
+        "Fixed-by": "1e2f9a611b334ce6ed1dc4a9e1587c7a11d2be30",
+        "subsystem": "char/tpm",
+        "problem_description": "Auth session leak in the tpm2_get_random() error path due to a missing tpm2_end_auth_session() call when tpm_buf_fill_hmac_session() fails."
+    },
+    {
+        "Commit": "d2d5c129d07ea8eb91cd8a8633b5774116c4d171",
+        "Fixed-by": "f341dc4d934a69ffbe6c21e3609ee725790188f1",
+        "subsystem": "cpufreq",
+        "problem_description": "Unconditional fallback to cpuinfo.max_freq in cpufreq_update_pressure violates scheduler assumptions by applying cpufreq pressure when the CPU capacity reference frequency is unknown."
+    },
+    {
+        "Commit": "d5d8b8662e6e5a565b47a0388640e88402f23274",
+        "Fixed-by": "e3ee38c1bc0b11a8d3e63dce7050759b61864286",
+        "subsystem": "x86/mm",
+        "problem_description": "Circular locking dependency (deadlock) caused by acquiring the init_mm mmap read lock in the page attribute change path, which can be called during memory reclaim, while the same lock is held during a GFP_KERNEL allocation in pud_free_pmd_page."
+    },
+    {
+        "Commit": "28abd224db4a49560b452115bca3672a20e45b2f",
+        "Fixed-by": "0b7bd20f6379bc5e431fd74d866390f5b5b63f3c",
+        "subsystem": "sound/usb",
+        "problem_description": "Missing unregistration of the input device in the snd_probe error path leaves the input device registered after the card is freed, leading to a use-after-free."
+    },
+    {
+        "Commit": "41d60cbfde10b9f01ae6e2d3195463fbad6e54a8",
+        "Fixed-by": "f4b506f735e3c24c4fd4d3a60239e0b1b241600e",
+        "subsystem": "sound/hda",
+        "problem_description": "Adding a PCI SSID quirk for the Lenovo Yoga Pro 9 16IAH10 breaks audio on other machines sharing the same PCI SSID by overriding their correct codec-SSID quirks."
+    },
+    {
+        "Commit": "26eb3d92c7a4d7adb1ae1740ca6e8e100b11d1ec",
+        "Fixed-by": "f0fd8993082ca229faa3f9844f1c9fe182eca20b",
+        "subsystem": "input",
+        "problem_description": "The InterTouch quirk for the ThinkPad T440p incorrectly disables SMBus InterTouch on all devices with board id 2722, such as the L440, instead of restricting the quirk to the specific PNP ID."
+    },
+    {
+        "Commit": "1d581ab2348cdbb6d4d0a467382926b68e374ec9",
+        "Fixed-by": "347c6ed8cf7768883252e106994de62c7947f0a0",
+        "subsystem": "mm",
+        "problem_description": "Implicit padding in the UAPI struct allocinfo_counter causes a compiler error when testing headers with -Wpadded."
+    },
+    {
+        "Commit": "e9b55af47edf6e60c9a47b5604c3e15c5162ec86",
+        "Fixed-by": "94480606a677deb68d5622cf0ded88626514b3f2",
+        "subsystem": "sched",
+        "problem_description": "Missing size argument in the scx_bpf_cid_topo BPF kfunc prevents struct scx_cid_topo from growing without breaking backward compatibility or causing out-of-bounds writes."
+    },
+    {
+        "Commit": "97d65b544f48b2ee49f6aea32145e3e7969955dc",
+        "Fixed-by": "700f8d24436c45cb3cc8956f35c90a1b6a6487c2",
+        "subsystem": "kvm",
+        "problem_description": "Adding the vcpu_ids bitmap to struct kvm significantly increases the structure size, tripping a sanity check and causing build failures on x86 when CONFIG_DEBUG_KERNEL is disabled."
+    },
+    {
+        "Commit": "7bc054c2d4ed1fa3560144fea41d91a87eaa25f1",
+        "Fixed-by": "0e7fe2b0ca45343b53345edc174898b448ccdaa4",
+        "subsystem": "net/broadcom",
+        "problem_description": "Allocating whole pages for RX buffers inflates the skb truesize, causing UDP sockets to drop packets and wasting memory on systems with large page sizes."
+    },
+    {
+        "Commit": "1d78d56c43ef3768183e8370e7367b162700e049",
+        "Fixed-by": "b78b728e21c32ec4c330b299f657fb1eb02dffc2",
+        "subsystem": "fs/netfs",
+        "problem_description": "Direct mempool allocation callbacks skip the alloc_hooks wrapper, leading to missing allocation tagging and kernel warnings when memory allocation profiling debug is enabled."
+    },
+    {
+        "Commit": "5ebdcac59affbbc044cc362200b9b03abe1c8345",
+        "Fixed-by": "89a8a1eef2d441b7825a6c0116ce817235a7ffe6",
+        "subsystem": "net/mdio",
+        "problem_description": "The RTL931x MDIO driver incorrectly leaves the extended page field at zero during Clause 22 transactions, overriding page selections and breaking access to private PHY pages."
+    },
+    {
+        "Commit": "8200871327d1bd4c08daf248a8693a3093982fa4",
+        "Fixed-by": "a8e8cf9bf446b65449c7bc39ad84956c347d5f9c",
+        "subsystem": "tty/serial",
+        "problem_description": "Build failure due to an unused function warning for qcom_geni_serial_poll_rx_fifo_locked when console support is disabled."
+    },
+    {
+        "Commit": "63747c94774d4a5a0a9d9e739da0df29937aebea",
+        "Fixed-by": "e7e0a54300a896e731dffd3e2e8dae5631d6243d",
+        "subsystem": "security/landlock",
+        "problem_description": "The 32-bit ruleset version counter can wrap around after repeated successful rule additions, causing different rule histories to alias to the same trace identity."
+    },
+    {
+        "Commit": "2eb9982ff179e648675b6c5b345b9ed509fc3361",
+        "Fixed-by": "bb2635be7646a6a9e40a27becb936fe3cdcccf8d",
+        "subsystem": "drm/i915",
+        "problem_description": "The test ops structs are exported globally using EXPORT_SYMBOL instead of EXPORT_SYMBOL_IF_KUNIT, polluting the global namespace and rendering the KUnit namespace import meaningless."
+    },
+    {
+        "Commit": "a39ac4651e3b9d2ca78b6d3dc2a81a6bd25fa616",
+        "Fixed-by": "58a00330248154461c52a6f3bd5c01e5b67f9560",
+        "subsystem": "power/sequencing",
+        "problem_description": "The serdev for the WCN7850 on the Lenovo ThinkPad T14s gen6 is not created because its PCI subdevice ID was omitted from the match table."
+    },
+    {
+        "Commit": "e4c9a4cb244a273c58e8fd86d7c04e2502822e64",
+        "Fixed-by": "d6013e2465d98d524b030a81c1223882a1bb7e4c",
+        "subsystem": "sched",
+        "problem_description": "Active load balance loses the migrate_llc_task semantics because the CPU stopper constructs a fresh lb_env that does not inherit the migration type from the passive load-balance pass, potentially moving tasks away from their preferred LLC."
+    },
+    {
+        "Commit": "d3539347022ad4eeb9dbd29c50bfca17b9d8a146",
+        "Fixed-by": "37aba16e7943634eb3e5e2e7e850ebb38500d935",
+        "subsystem": "tty/serial",
+        "problem_description": "Using a non-lazy irq_work for console_msr_work raises an immediate IRQ upon queueing, which causes hangs on Tegra20 and Tegra30 platforms when atomic printing occurs while entering cpuidle states."
+    },
+    {
+        "Commit": "8d75c338f0bcecaa6c9af67f86c176b67b6acf3e",
+        "Fixed-by": "be581d6635579489eadff9cea4caee142ec6d8bc",
+        "subsystem": "selftests/net",
+        "problem_description": "Renaming CONFIG_PROC_SYSCTL to CONFIG_SYSCTL in place leaves the entries out of alphabetical order in the net and packetdrill selftest configs, causing netdev CI checks to fail."
+    },
+    {
+        "Commit": "b230e5bf501c5edaf2eb0991cb862ac142031d4b",
+        "Fixed-by": "6d91041bb38b97e2feb625123cc0529d7b83a0e1",
+        "subsystem": "bluetooth",
+        "problem_description": "Insufficient skb length validation in rfcomm_recv_frame for frames with an extended 2-byte length field allows short frames to bypass checks and be incorrectly parsed."
+    },
+    {
+        "Commit": "bb91730f16c064f4eb0dc15ed27814c8f9aef670",
+        "Fixed-by": "0889db596a25ecde210e66fa0db70bc6a6d91f6c",
+        "subsystem": "security/landlock",
+        "problem_description": "The signal-scope denial tracepoint fails to record the effective signal number, causing permission-probe signal zero to be lost and making the file-owner hook's zero sentinel ambiguous."
+    },
+    {
+        "Commit": "bb91730f16c064f4eb0dc15ed27814c8f9aef670",
+        "Fixed-by": "7ad69ac63315506e2091bf46d5c96c49f6ce439e",
+        "subsystem": "security/landlock",
+        "problem_description": "The ptrace denial tracepoint fails to report the actual tracer task, preventing consumers from accurately identifying the tracer during PTRACE_TRACEME where the current task is the tracee."
+    },
+    {
+        "Commit": "01ce260f5ccf0fe7e38d2fd548e776f594409cf6",
+        "Fixed-by": "98b04ab00f0e738d69bd718228db55483a911b7a",
+        "subsystem": "security/landlock",
+        "problem_description": "The landlock_deny_access_net tracepoint reports ambiguous zero values for ports and allows typed BPF programs to read uninitialized bytes."
+    },
+    {
+        "Commit": "63747c94774d4a5a0a9d9e739da0df29937aebea",
+        "Fixed-by": "1a985d3890ed8caa428390a5682e957503f14060",
+        "subsystem": "security/landlock",
+        "problem_description": "The Landlock rule tracepoints use a scalar access_mask_t argument that breaks BPF CO-RE forward compatibility and report inaccurate rule context data."
+    },
+    {
+        "Commit": "3f1f106e4c14071ad8cb8ae6775d2d11780a7d01",
+        "Fixed-by": "1a985d3890ed8caa428390a5682e957503f14060",
+        "subsystem": "security/landlock",
+        "problem_description": "Tracepoint arguments passed by value use the growable access_mask_t type instead of a fixed u64, which breaks BPF CO-RE because it cannot widen scalar callback slots."
+    },
+    {
+        "Commit": "01ce260f5ccf0fe7e38d2fd548e776f594409cf6",
+        "Fixed-by": "0de33ca344fbf983d380d78db6eeb6fe312d5a5e",
+        "subsystem": "security/landlock",
+        "problem_description": "Filesystem topology denials are incorrectly rendered with an empty blockers value in tracepoints because they are identified by request type rather than an access mask."
+    },
+    {
+        "Commit": "f994752b11273ded7ec6b49ae5c1d319eef21743",
+        "Fixed-by": "1b82958f3f035df5ccaab5430a2302f08a5d5351",
+        "subsystem": "net/ethtool",
+        "problem_description": "The ethtool IOCTL path for ETHTOOL_TEST runs without rtnl_lock on ops-locked drivers, causing lockdep warnings and assertion failures when offline self-tests tear down and bring up the interface."
+    },
+    {
+        "Commit": "8bbde987c2b84f80da0853f739f0a920386f8b99",
+        "Fixed-by": "90179da203ba8b708c84a12a07cd44be0f346334",
+        "subsystem": "mm/damon",
+        "problem_description": "The DAMON core incorrectly clamps the effective quota size to the minimum region size instead of allowing it to be zero when the temporal quota goal has been achieved."
+    },
+    {
+        "Commit": "09178f536bb9c659953364639de6564848fa1c21",
+        "Fixed-by": "406aa2b186d3f13a35bc1ad6aff4274917851bc4",
+        "subsystem": "drivers/perf",
+        "problem_description": "Incorrect assignment order of the filter and filter2 controls for EVICT_STATE_SEL events in the ARM CMN PMU driver, causing them to be programmed in the opposite order from the hardware specification."
+    },
+    {
+        "Commit": "b049b81bdff6fc6794200a4c7d7d910e2008d57f",
+        "Fixed-by": "fe3c73d7bc769e7afc252f867a3421fe168b898d",
+        "subsystem": "sched",
+        "problem_description": "False positive warning in set_task_cpu when proxy execution migrates a blocked, migration-disabled donor task."
+    },
+    {
+        "Commit": "6ec7c96bee30a7d9f3982951aa19f712feb14f6a",
+        "Fixed-by": "4f948b5949d2e418b4506752e7c514fe91bd408b",
+        "subsystem": "fs/binfmt_misc",
+        "problem_description": "Out-of-bounds read in bpf_binprm_select_interp due to a time-of-check to time-of-use race condition where a BPF map value can be modified concurrently between strnlen and strcmp."
+    },
+    {
+        "Commit": "f01794106042ee27e54af6fdf5b319a2fe3df94d",
+        "Fixed-by": "207d591c353201f3bd3e0c89bb7d44a849c8fd59",
+        "subsystem": "netfilter",
+        "problem_description": "Suspicious RCU usage warning in expect_iter_name due to using rcu_dereference without holding the RCU read lock instead of rcu_dereference_protected."
+    },
+    {
+        "Commit": "32750c77e811dba81eb92abf9182b1f424255d3a",
+        "Fixed-by": "5179241521401ef364294128bb43cdbce7252457",
+        "subsystem": "fs/namespace",
+        "problem_description": "A circular locking dependency warning in lockdep disables it for the rest of the boot because namespace_sem is held during superblock allocation due to a cleanup attribute extending the lock's scope to the end of init_mount_tree."
+    },
+    {
+        "Commit": "c0410adf3da6db46f3513411fcf95e63c2f1d1ad",
+        "Fixed-by": "c51e89c5b5db3e1927738fad7cd18b66dde68aed",
+        "subsystem": "netfs",
+        "problem_description": "Symlink reads from the cache return a rounded-up size because the iterator size is set to PAGE_SIZE, leading to incorrect symlink lengths and trailing garbage."
+    },
+    {
+        "Commit": "251b53103a2e5770658ae106c490cdd2b7512c3a",
+        "Fixed-by": "912df33f296e6c4ced8c0a5e7998d570a0b82214",
+        "subsystem": "pinctrl/qcom",
+        "problem_description": "The default width of the interrupt target field in the Maili pinctrl driver does not match the actual register layout due to a missing intr_target_width initialization."
+    },
+    {
+        "Commit": "90700e10d2ad61c13a5117cfa5e08d9f2e497dcc",
+        "Fixed-by": "9d4c3e0c6a53eb390d58b8d7aaf08885e46f93fd",
+        "subsystem": "pinctrl/qcom",
+        "problem_description": "Missing initialization of the interrupt target field width in the PINGROUP macro results in an incorrect register layout configuration."
+    },
+    {
+        "Commit": "c24dd0826f064d6b99a74ca0e004a4cda6677b9f",
+        "Fixed-by": "68ab4a6a84b92f52650508acb60317eb76454250",
+        "subsystem": "pinctrl/qcom",
+        "problem_description": "Missing intr_target_width configuration in the Nord pinctrl driver causes GPIO interrupts to be routed to the wrong target processor due to an incorrect default bitmask."
+    },
+    {
+        "Commit": "f14e0c8183bc73c5ca0ad93670b5b74c71d86df2",
+        "Fixed-by": "137d6ccf0ec8c48ecf0facc47cc46926df5fd0f3",
+        "subsystem": "android/binder",
+        "problem_description": "Missing transaction_report feature entry in rust_binderfs prevents userspace from determining if the BINDER_CMD_REPORT netlink API is supported."
+    },
+    {
+        "Commit": "ee9dce44362b2d8132c32964656ab6dff7dfbc6a",
+        "Fixed-by": "b61b6f95d6722ddbbbd09e689fa41b55fd36f9a5",
+        "subsystem": "futex",
+        "problem_description": "Failure to allocate a private futex hash on vfork allows private futex waiters to exist before the hash is allocated."
+    },
+    {
+        "Commit": "7f1172a2ac0d7e50850785e2e65789c8aac8411a",
+        "Fixed-by": "a26204be587c57bd5c54fa513be26c4fd7bf252d",
+        "subsystem": "drm/i915",
+        "problem_description": "Unclaimed register accesses occur on pipes not supporting selective fetch because plane disable logic uses a global display version check instead of a pipe-specific check."
+    },
+    {
+        "Commit": "fc240715fc5003538ff530e3cfb985e7769b7171",
+        "Fixed-by": "96e6757cb0674acb86ee8b558ee6bffe0eec0bb0",
+        "subsystem": "selftests/kvm",
+        "problem_description": "Hardcoding the number of guest pages to 1 in check_steal_time_uapi causes test assertion failures on systems with host page sizes larger than 4K."
+    },
+    {
+        "Commit": "e3ac0d9f1a205f33a43fba3b79ef74d2f604c78b",
+        "Fixed-by": "78b6abd6c7a7591aacdae657f813214dae4fcd3b",
+        "subsystem": "bluetooth",
+        "problem_description": "Incorrect status decoding for short WMT FUNC_CTRL events always treats them as failures instead of checking the header flag."
+    },
+    {
+        "Commit": "7d163a75f8211b4a21b0375109ffe3330126c1e4",
+        "Fixed-by": "ba13f1f32d96d7ce9069ae4f32404ecde8da89c4",
+        "subsystem": "mm/memblock",
+        "problem_description": "Missing string entry for MEMBLOCK_RSRV_HUGETLB in the flagname array prevents memblock debugfs from reporting the flag by name."
+    },
+    {
+        "Commit": "39e30bdf2f92d3de30bc4cdc4ea6c0da41298be1",
+        "Fixed-by": "ee415ce8cba154d07d02a6d2fbb27ff518264c3a",
+        "subsystem": "drm/i915",
+        "problem_description": "Undefined shift behavior in calc_allowed_config_filter due to passing a potentially negative index from iter_pos_to_idx directly to the BIT macro."
+    },
+    {
+        "Commit": "939919ccddfcc379bb82b1f90f732d9a5cb32cc8",
+        "Fixed-by": "c54110d814c3e8ed6bbbb5e02874994ed9f668ac",
+        "subsystem": "xfs",
+        "problem_description": "xchk_directory_data_bestfree unconditionally checks the padding field of directory blocks, incorrectly treating dir3_block blocks as if they have a padding field like dir3_data blocks."
+    },
+    {
+        "Commit": "8440d5aca227d623801b5f8a2b9e3d86b7daa8bf",
+        "Fixed-by": "451b1c19dc7cbbad194a6e717b6a732c443d7dd5",
+        "subsystem": "hwmon",
+        "problem_description": "Incorrect model ID range for Zen 5 Turin processors includes mobile processors, leading to bogus temperature reporting for non-existent CCDs."
+    },
+    {
+        "Commit": "6b1c66c9cca99bf00386481c7b2aa7394c26d8b8",
+        "Fixed-by": "08cacffeef8f64f1a222c93467ca84f24a46c953",
+        "subsystem": "kernel/fork",
+        "problem_description": "Use-after-free of the parent's function graph return stack in copy_process because ftrace_graph_init_task is called after the fallible copy_exec_state operation."
+    },
+    {
+        "Commit": "3db7d7d583419f7b1f2e141e36418802dbb25cf8",
+        "Fixed-by": "fcfe64715b425262af1b36f498f9197f3537ceed",
+        "subsystem": "drm/ttm",
+        "problem_description": "Incorrect error handling condition in ttm_bo_alloc_at_place allows failed dmem cgroup charges to proceed, while the intended bulk_move removal in ttm_bo_swapout_cb is not executed on success."
+    },
+    {
+        "Commit": "d9c56501c72fdac937e8b770f31655c46832f1a5",
+        "Fixed-by": "125755776bc6d4dd53eaf551c87e3d460625d638",
+        "subsystem": "net/ipv4",
+        "problem_description": "Devmem TCP transmission without zero-copy is not properly rejected, allowing the mixing of net-iov and pages in a single SKB which breaks invariants."
+    },
+    {
+        "Commit": "bee25f97ad24641df55cb3887eb5bfcb2b9d8fbc",
+        "Fixed-by": "11ae2e1dc58304a48816fc8ca4afa8f2ef9d1bdf",
+        "subsystem": "powerpc",
+        "problem_description": "Double accounting of user time on interrupt entry due to redundant calls to account_cpu_user_entry in arch_interrupt_enter_prepare and arch_enter_from_user_mode."
+    },
+    {
+        "Commit": "6a3b47a5a5fc0e294aa6d62ea70b63571f829823",
+        "Fixed-by": "f444a42dce5caf5856b5289c48e0d48e531649d3",
+        "subsystem": "power/supply",
+        "problem_description": "Incorrect assignment of the parsed maxim,over-volt property to chip->vmin instead of chip->vmax in max17042_parse_dt."
+    },
+    {
+        "Commit": "e468d371180d3c5b3333660bd742103b88703adf",
+        "Fixed-by": "f01b8275745efe611284f6c3628099a81a421f0d",
+        "subsystem": "net/mptcp",
+        "problem_description": "Unnecessary and expensive out-of-order queue pruning is triggered for out-of-window data packets that will be immediately dropped anyway."
+    },
+    {
+        "Commit": "6650527444dadc63d84aa939d14ecba4fadb2f69",
+        "Fixed-by": "e780259b54e618ceb4763fbc21314acf3565e813",
+        "subsystem": "exec",
+        "problem_description": "Taking exec_update_lock in procfs creates a deadlock with do_close_on_exec() which holds the same lock while potentially blocking on filesystem operations."
+    },
+    {
+        "Commit": "fafaeceb89a5e2e856ff04c2cacb6cae4a2ecb67",
+        "Fixed-by": "932cfb25e7ce98d1f93895671ec186a3087e4f80",
+        "subsystem": "mm/shrinker",
+        "problem_description": "When cgroup.memory=nokmem is set, the deferred split shrinker's list_lru initialization inherits a bogus shrinker ID of 0, causing an out-of-bounds warning in set_shrinker_bit() when deferred_split_folio() queues a THP."
+    },
+    {
+        "Commit": "84f05af0975c9f9c8ffee0361d6f7cbb1f289231",
+        "Fixed-by": "1f6de65e3314519ce462bfd3a1d29e918f97e4e5",
+        "subsystem": "opp",
+        "problem_description": "Use-after-free in _update_opp_table_clk due to accessing opp_table->clk after freeing opp_table with dev_pm_opp_put_opp_table."
+    },
+    {
+        "Commit": "e31d761628ad7e96490fc78105ed0a064ec1c1d9",
+        "Fixed-by": "dcaf83ead130d3067862599089b0999b3da140a4",
+        "subsystem": "bluetooth",
+        "problem_description": "Unconditionally disabling remote wakeup capability for MT7922/MT7925 prevents the device from being used as a system wakeup source by userspace and applies the workaround too broadly across all platforms."
+    },
+    {
+        "Commit": "1448c2d2ca5cc7f4ea6694e6bc809946de0a751c",
+        "Fixed-by": "dd519eb8f66eaa205bbbdcb753588138a1d18414",
+        "subsystem": "platform/x86",
+        "problem_description": "Setting the secondary fwnode on the ACPI companion device instead of the physical device causes GPIO lookups to fail."
+    },
+    {
+        "Commit": "1d80a4792f1de236c157bcee2e5400fad4c66c65",
+        "Fixed-by": "883e78c9e6007c91be96e99a36c35baf41bc8ed5",
+        "subsystem": "sound/soc/codecs",
+        "problem_description": "A race condition exists between the deferred snd_soc_register_component execution and kexec reboot, which can cause device list corruption if registration occurs while device_shutdown is walking the lists."
+    },
+    {
+        "Commit": "5b6e32ba7b5967a2787fafaa9f4740c590e1e00b",
+        "Fixed-by": "353a95f1cd8da8a5436a3f070be07d2f484486cd",
+        "subsystem": "kernel/entry",
+        "problem_description": "The kernel.syscall_user_dispatch sysctl fails to register because it is guarded by the removed CONFIG_PROC_SYSCTL macro instead of CONFIG_SYSCTL."
+    },
+    {
+        "Commit": "e9151ed5c94480c73a15305bde5e69a2c7bf45e4",
+        "Fixed-by": "89ff16f0713917303210c560eec5cd0c13bd651f",
+        "subsystem": "sched_ext",
+        "problem_description": "Race condition in partition work handoff where pending requests can be missed if they arrive as the current runner finishes, delaying updates until the round-robin timer runs."
+    },
+    {
+        "Commit": "350d1fb9204b13c5f95e511e98b8bcb47574d425",
+        "Fixed-by": "ef7707c1b7c7bcd09298114fa64d1494727e20b1",
+        "subsystem": "iio/dac",
+        "problem_description": "The driver incorrectly limits the maximum raw DAC value to 63 instead of 64, preventing userspace from selecting the full-scale output voltage."
+    },
+    {
+        "Commit": "709f34f7c28dc4dd6c40343d101850f11e172312",
+        "Fixed-by": "094cc07f98dfe70a34e2a1923af17fd29b8cf622",
+        "subsystem": "net/sched",
+        "problem_description": "The fq qdisc allows setting quantum to a very small value via tc qdisc change, which can cause a deficit spin."
+    },
+    {
+        "Commit": "334f3f6d7a1660fd65597bad9960bfa33a716d35",
+        "Fixed-by": "63a7531ca31f9f097d9cc1cc3fe86ae683cdabdd",
+        "subsystem": "powerpc",
+        "problem_description": "Using local_irq_disable() in arch_interrupt_exit_prepare() overwrites irq_soft_mask and strips the IRQS_PMI_DISABLED bit during replayed interrupt exits."
+    },
+    {
+        "Commit": "6905f8601298ecd2d1932a4b4849bf265201118e",
+        "Fixed-by": "65cc95eba9e8b46312cac38c227473605a4b996a",
+        "subsystem": "bpf",
+        "problem_description": "Calling bpf_obj_free_fields from NMI context in resizable hashtab operations is unsafe when releasing referenced kptrs or complex fields."
+    },
+    {
+        "Commit": "6905f8601298ecd2d1932a4b4849bf265201118e",
+        "Fixed-by": "5df46ddcb7b36878c1b691e9057a0509042a2567",
+        "subsystem": "bpf",
+        "problem_description": "Reinitializing special fields on insertion in resizable hashtabs clears pointers to active timers in recycled elements, potentially leading to use-after-free when callbacks run with freed memory."
+    },
+    {
+        "Commit": "ec1d77cb0ee98249142dcd0376d76e7a48ba0b31",
+        "Fixed-by": "73a98f96811e2cb0f4210b1caa8cb322f92f2a2b",
+        "subsystem": "bpf",
+        "problem_description": "Taking register snapshots before collecting linked registers in check_cond_jmp_op resurrects scalar IDs dropped by collect_linked_regs, leading to incorrect range adjustments."
+    },
+    {
+        "Commit": "ba742531260782a2646bc031f9a12cafebc22594",
+        "Fixed-by": "4a724bcf5d703e18957397914d79156fa2cf1174",
+        "subsystem": "mm/slab",
+        "problem_description": "Race condition in __slab_try_return_freelist due to missing list_lock allows concurrent slab removal and insertion, leading to list corruption and kernel panic."
+    },
+    {
+        "Commit": "72b65c94058e4ad9a03885d91c7a5f8a5c1d39be",
+        "Fixed-by": "b752e041d5845d03f285cf7a1f30b38ca7ef92bf",
+        "subsystem": "net/enic",
+        "problem_description": "The V2 VF loses its carrier state after a netdev down/up cycle because enic_open does not restore the previous link state notification from the PF."
+    },
+    {
+        "Commit": "6905f8601298ecd2d1932a4b4849bf265201118e",
+        "Fixed-by": "0895a0c0734703be5532f3883c42db95615fd98b",
+        "subsystem": "bpf",
+        "problem_description": "Missing validation for key-less BTF in rhtab_map_check_btf allows invalid hash maps to be created, leading to a NULL pointer dereference when reading them back."
+    },
+    {
+        "Commit": "bee25f97ad24641df55cb3887eb5bfcb2b9d8fbc",
+        "Fixed-by": "c2549d749539487239475fbc8c614a1f9244d655",
+        "subsystem": "powerpc",
+        "problem_description": "Restoring KUAP in arch_exit_to_user_mode_prepare is too early on PowerPC because platform-specific exit routines that can enable IRQs still run afterwards, leading to KUAP debug warnings."
+    },
+    {
+        "Commit": "98df2aee1459ee1c62c70cbe9b370d2a532aea36",
+        "Fixed-by": "00baeade709fb66da647e8327e8398bb532e30f7",
+        "subsystem": "rdma/erdma",
+        "problem_description": "Deadlock between EQ interrupt handlers performing XArray lookups and create-path XArray updates due to the use of non-IRQ-safe XArray helpers."
+    },
+    {
+        "Commit": "ee861486e377edc55361c08dcbceab3f6b6577bd",
+        "Fixed-by": "387b1baefbb776e3f48dc2261e77a49213f470f7",
+        "subsystem": "bpf",
+        "problem_description": "Precision backtracking for BPF_LD | BPF_{IND,ABS} instructions fails to handle the implicit subprogram exit edge, leading to segmentation faults or unsound state pruning."
+    },
+    {
+        "Commit": "dbc8fd7a03cbc0704e8e558a448015f620547a02",
+        "Fixed-by": "0ba8e0f90039da68342febf613019f4a68d86620",
+        "subsystem": "accel/amdxdna",
+        "problem_description": "The driver incorrectly attempts to flush the scatterlist of an imported buffer object during a sync operation instead of refusing the request, violating dma-buf semantics."
+    },
+    {
+        "Commit": "2fb7755b0a7efb811d7d09f3a6ea06fd611d1ba4",
+        "Fixed-by": "8d7b3e41ffecc69388a566ecc52093d292074c2a",
+        "subsystem": "rust/pci",
+        "problem_description": "Integer truncation in IrqVectorRegistration::index when casting a usize index to u32 can cause wrap-around on 64-bit architectures, leading to incorrect IRQ vector resolution."
+    },
+    {
+        "Commit": "a23226b7c1f69eafd9ced4e037fb51c9758c0501",
+        "Fixed-by": "1f1d0812f6a8ab8e6f709c599f137c99646512cc",
+        "subsystem": "gpio",
+        "problem_description": "Setting the OF_POPULATED flag on a gpio-hog node in of_gpio_notify before verifying the parent GPIO chip exists causes the hog to be permanently ignored when the chip is registered later."
+    },
+    {
+        "Commit": "0e6f8ccd4618afdb504d5c56fe2fea1a2cd5d86a",
+        "Fixed-by": "bb3a94a6828336dcc2dd891e51ebd92dcdd0b576",
+        "subsystem": "drivers/base",
+        "problem_description": "The DRIVER_PE_KUNIT_TEST Kconfig option incorrectly selects the OF subsystem, silently enabling additional kernel functionality and potentially increasing the attack vector, instead of skipping the test when OF is disabled."
+    },
+    {
+        "Commit": "f576c75f95a52c71b30167d7efb6d47148f9c279",
+        "Fixed-by": "d50b6442bef66abbe4694f918f8ad013f81d75cf",
+        "subsystem": "usb/typec",
+        "problem_description": "Reverting the deduplication logic for typec muxes causes combo PHYs to be erroneously configured twice for USB super-speed and SBU/AUX lines."
+    },
+    {
+        "Commit": "d487a24041c2ea9999ff6e8384002b874de64c94",
+        "Fixed-by": "ae12d2f9c119639a142d92c4a37c30277e8576da",
+        "subsystem": "kvm/s390",
+        "problem_description": "Missing const qualifier for the old memory slot parameter in kvm_s390_update_cmma_dirty causes a compile-time warning."
+    },
+    {
+        "Commit": "3033b2b1e3949274f33a140e2a97571b5a307298",
+        "Fixed-by": "2d2184ac90365a4af3274e23c98d469f09f91749",
+        "subsystem": "riscv",
+        "problem_description": "Incorrectly resetting the hardware pointer masking mode when the tagged address ABI is disabled breaks the ability for userspace to enable pointer masking independently."
+    },
+    {
+        "Commit": "b542d13fab0f556660ce5f10179fb3ae66bdb9a4",
+        "Fixed-by": "349c366365876b7f67120827a0deb44899f59303",
+        "subsystem": "net/ethernet",
+        "problem_description": "The TX queue can be inadvertently re-enabled by other network layers after a fatal error because it is not permanently disabled."
+    },
+    {
+        "Commit": "464e454e1cb4c22836fd7d1a17b3c3b11f47d989",
+        "Fixed-by": "93e257938aa67a6c957217db94091d9d9e5d403f",
+        "subsystem": "tools/workqueue",
+        "problem_description": "AttributeError in wq_dump.py when inspecting older kernels or vmcores due to missing backward compatibility for the wq->attrs rename."
+    },
+    {
+        "Commit": "a7320d6eb9c4240c948cd9c64582b3bd04cbaf4b",
+        "Fixed-by": "ee02ed6308fbbd851c4e5c1f642d029617049a12",
+        "subsystem": "platform/x86",
+        "problem_description": "Type confusion and invalid memory access in hp-wmi due to passing thermal parameters instead of board parameters as driver data for the 8DD6 board."
+    },
+    {
+        "Commit": "8c45bf9ae4efcecd2f91bc3e6f567280721fd0fd",
+        "Fixed-by": "1e5a53bd16ac501e68463e84023d1bff543cc696",
+        "subsystem": "arm64/dts",
+        "problem_description": "Missing device tree descriptions for PWM-driven power regulators causes Linux to treat them as unused and switch them off during boot, leading to random hangs and memory corruption."
+    },
+    {
+        "Commit": "8c45bf9ae4efcecd2f91bc3e6f567280721fd0fd",
+        "Fixed-by": "c793a084ab3088744516aef437b4239d0d98623f",
+        "subsystem": "arm64/dts",
+        "problem_description": "The sd_3v3 regulator is incorrectly marked as always-on, preventing the MMC core from power cycling the SD card to recover from 1.8V switch failures."
+    },
+    {
+        "Commit": "63981fc786daaa626cb14d9be1406f674d79f98f",
+        "Fixed-by": "a518e63c377574784f49653ef5314c70e2463b0c",
+        "subsystem": "fs/overlayfs",
+        "problem_description": "Incorrect error code -EIO is returned instead of -EINVAL when a mount is completed from a mismatched user namespace."
+    },
+    {
+        "Commit": "b48a0a0a76ccecec60f0568e2af4d89994b08bec",
+        "Fixed-by": "9fca7779ad18538188d640b1fdcfea924459542c",
+        "subsystem": "pmdomain/qcom",
+        "problem_description": "Incorrect addition of MXC and MMCX power domains for Eliza that are not actually wired up at the hardware level."
+    },
+    {
+        "Commit": "5ce9ac1531b8e27e754a7d17fa07fa9da0d4a6b3",
+        "Fixed-by": "6463655ab2946d13d2ec5efe04a5c2bf9d675f01",
+        "subsystem": "drm/i915",
+        "problem_description": "Duplicate call to intel_pfit_compute_config in mst_stream_compute_config due to an erroneous cherry-pick."
+    },
+    {
+        "Commit": "8f4b627656fa1767d8337a95849fe7c895b6f68a",
+        "Fixed-by": "b1c3c51b0916f7d1b2dceffc0e48abe185958825",
+        "subsystem": "iio/inv_sensors",
+        "problem_description": "When the interrupt timestamp interval is invalid, the estimated timestamp value can incorrectly exceed the actual interrupt timestamp."
+    },
+    {
+        "Commit": "35add1093e2fe62b755ef69b211d15b58ab915ab",
+        "Fixed-by": "a8455260b2e9c024d1872ac1c094793d55a7e537",
+        "subsystem": "net/ipvlan",
+        "problem_description": "Circular locking dependency in ipvlan_device_event because unregister_netdevice_many is called while holding the pnodes_lock mutex."
+    },
+    {
+        "Commit": "12b4c5d98cd7ca46d5035a57bcd995df614c14e1",
+        "Fixed-by": "69499395867332364ed4ac8b546537eb3bab6ebb",
+        "subsystem": "smb/client",
+        "problem_description": "Multiuser SMB mounts with Kerberos fail because the username option is not duplicated when creating multiuser connections, preventing cifs.upcall from finding credentials in the keytab."
+    },
+    {
+        "Commit": "340bdf984613c4a9241d678915e513824f5a9b19",
+        "Fixed-by": "88c71cc0ad9800d8814bd3627b21a0da9028e057",
+        "subsystem": "net/dsa",
+        "problem_description": "The MxL862xx driver enables FDB isolation but fails to enable assisted learning on the CPU port, causing stale hardware FDB entries and dropped traffic when clients roam to foreign bridge ports."
+    },
+    {
+        "Commit": "5cb53743e1ff3a2e0eac415412c724b78c5f047f",
+        "Fixed-by": "1d62b83fb75125344693db8ebf970653db529f40",
+        "subsystem": "selftests/net",
+        "problem_description": "The big_tcp_tunnels test fails to produce BIG TCP packets in slow configurations because increased RTT limits sk_pacing_rate and caps SKBs."
+    },
+    {
+        "Commit": "5cb53743e1ff3a2e0eac415412c724b78c5f047f",
+        "Fixed-by": "f7d0400bd3452ed6915592b1929ba1d39d8e6552",
+        "subsystem": "selftests/net",
+        "problem_description": "The BIG TCP packet threshold in the UDP tunnels selftest is too high when checksum offload is disabled, causing false test failures due to lower throughput."
+    },
+    {
+        "Commit": "5cb53743e1ff3a2e0eac415412c724b78c5f047f",
+        "Fixed-by": "bb42c16f489f10144f7d2fbb1f57753f14e12ac8",
+        "subsystem": "selftests/net",
+        "problem_description": "The big_tcp_tunnels.sh selftest uses a hardcoded packet threshold that is too high for slow debug kernels, causing the test to be flaky and fail on upstream CI runners."
+    },
+    {
+        "Commit": "5cb53743e1ff3a2e0eac415412c724b78c5f047f",
+        "Fixed-by": "dc170da3347e0f7b6d120d13882c4e1f04ca00d6",
+        "subsystem": "selftests/net",
+        "problem_description": "Race condition in big_tcp_tunnels.sh where the test starts before netserver is fully listening, leading to test failures."
+    },
+    {
+        "Commit": "1e3b9e1c77fe262c6999c50f6f23c20f96faf5ce",
+        "Fixed-by": "132a02beb46fc4d497c41c81ed0dda7956fa4171",
+        "subsystem": "netfilter",
+        "problem_description": "The dead flag for deleted or destroyed sets is not set early enough in the commit path, causing the set .commit operation to be incorrectly executed for sets that are being removed."
+    },
+    {
+        "Commit": "27d090f3ccd4cade897fb7e0c8c0a6e2fd3a95a0",
+        "Fixed-by": "15596a87fcc6fa07a162858e5fd00ba31752096b",
+        "subsystem": "sound/soc/amd",
+        "problem_description": "The DMI quirk for ASUS TUF FA401EA devices uses an overly specific product name string that fails to match all variants of the hardware."
+    },
+    {
+        "Commit": "506054980429497d106261568bd39c22a40e0fdd",
+        "Fixed-by": "1b0bab4a873f1034c27573cfc613394cff7e0a5b",
+        "subsystem": "rust",
+        "problem_description": "The rusttest build target fails due to an ambiguous dependency on zerocopy_derive because the compiler finds both the sysroot copy and the locally built copy."
+    },
+    {
+        "Commit": "7b6246294eb091c821078468523594c640804988",
+        "Fixed-by": "ab0304fd69b07605553e9f161d65ecf9ccc2e2fe",
+        "subsystem": "tools/verification",
+        "problem_description": "Checking in .bak backup files for rvgen kunit selftests causes clean targets like make distclean to remove them and leave the source tree dirty."
+    },
+    {
+        "Commit": "ea928e9e18da682e9a5bc40aa862bff7ce5ae42e",
+        "Fixed-by": "c1afbd5de131f5e3c4fc7559acf055f8d9d86868",
+        "subsystem": "mm/memcontrol",
+        "problem_description": "Shrinking struct vmpressure inadvertently moves memory event counters and the hot vmstats_percpu pointer onto the same cacheline in struct mem_cgroup, causing false sharing and a performance regression."
+    },
+    {
+        "Commit": "6b7e0066294d23ad1fd37f4326c32e8090fb8b65",
+        "Fixed-by": "db9deec5a345abc538d081fb221dc0b00a9695bd",
+        "subsystem": "accel/ethosu",
+        "problem_description": "Incorrect reading of the U65 rounding mode as a storage mode causes valid command streams to fail with -EINVAL."
+    },
+    {
+        "Commit": "5ead2063611ae56809b1b113ac44cef9547c81d7",
+        "Fixed-by": "ca0583c24661749508a0979189c254388a685559",
+        "subsystem": "bluetooth",
+        "problem_description": "Applying the HCI_QUIRK_BROKEN_EXT_SCAN quirk to all RTL8761B devices breaks Bluetooth functionality on dongles that actually support extended scanning, causing them to fail and re-enumerate in an endless loop."
+    },
+    {
+        "Commit": "b66774b48dd98f07254951f74ea6f513efe7ff8b",
+        "Fixed-by": "ca2c4c26498643f421d35ffe258fafbd3ed461c3",
+        "subsystem": "bluetooth",
+        "problem_description": "Use-after-free in L2CAP socket options when accessing conn->hcon because the channel connection reference extends the lifetime of conn beyond its associated hci_conn."
+    },
+    {
+        "Commit": "8ed8b02396172b137ca8c78c3cb999ddf4fb0bbf",
+        "Fixed-by": "ef6d27af71e1dc43181ec797a6aaa77c27c36786",
+        "subsystem": "accel/amdxdna",
+        "problem_description": "A command chain with a command count of zero passes the payload length check, leading to a zero-length buffer submission and a subsequent page fault during cache flush."
+    },
+    {
+        "Commit": "1b086687483371621e684e2a05b2bcd2cf07b634",
+        "Fixed-by": "46094a7708b7945cb7eba9eb887e3ea9757440a7",
+        "subsystem": "locking",
+        "problem_description": "Switching lock guards to use nested interrupt disabling primitives breaks existing code that manually unlocks and relocks the spinlock inside the guard scope."
+    },
+    {
+        "Commit": "d2121faf133ac3bf9531b53a7e21273649a08517",
+        "Fixed-by": "31ded341c375bb2faac1d77ab0012a732ba3e2a6",
+        "subsystem": "net/ntb_netdev",
+        "problem_description": "Incorrect network statistics accounting where successfully received packets are not counted in rx_packets and rx_bytes if the replacement skb allocation fails."
+    },
+    {
+        "Commit": "cc5d90667db81474ed7a92a1b2fa3daec5559307",
+        "Fixed-by": "4e15e89faac9f308baeb01f46c13a051814d2449",
+        "subsystem": "net/bnxt",
+        "problem_description": "A TX queue stall occurs when the software USO transmission path exits early without ringing the doorbell for previously written buffer descriptors."
+    },
+    {
+        "Commit": "f234fdaae1cad8c39265e7ca0a14633076ec7154",
+        "Fixed-by": "7617cc05df28dcae967cca109de74084321eaa62",
+        "subsystem": "acpi",
+        "problem_description": "Combining completely overlapping resources during ACPI platform device registration breaks drivers that expect multiple identical resources to be present."
+    },
+    {
+        "Commit": "83df7b5fa6735b5084ecd296a0f67208650ba497",
+        "Fixed-by": "d0ad81b2b5feea2e8b08a529c0e0d1fbaca98333",
+        "subsystem": "hid/hyperv",
+        "problem_description": "Pointer arithmetic on a nested fixed-size struct triggers a FORTIFY_SOURCE write overflow warning when populating the report buffer in the KUnit test."
+    },
+    {
+        "Commit": "c26339e1df335423bcbb83d6fa6ff94b1545b8ed",
+        "Fixed-by": "0ecd56573c1f272c72298154a3854380876dbb7c",
+        "subsystem": "ext4",
+        "problem_description": "Fastcommit replay crashes because ext4_mark_iloc_dirty incorrectly sets the I_METADATA_WRITEBACK flag, causing the filesystem to enter writeback paths before they are fully initialized."
+    },
+    {
+        "Commit": "5262eab9462adffd73a84409dee0cbf57fe31da3",
+        "Fixed-by": "ec518a7c4ba13ea0b94a50cc79584e6d578e4791",
+        "subsystem": "net/macb",
+        "problem_description": "Build failure on CONFIG_OF=n builds due to macb_alloc_tieoff and macb_free_tieoff being mistakenly declared inside a CONFIG_OF block but called unconditionally."
+    },
+    {
+        "Commit": "a8f4278353947d019c990a77d574dfd4d1dc9b46",
+        "Fixed-by": "37e5c4f4d2856290b1c56e573ced91dcd88db8ec",
+        "subsystem": "bpf",
+        "problem_description": "Out-of-bounds access in the BPF disassembler when reporting subprogram fallthrough diagnostics for an invalid signed double-word load instruction."
+    },
+    {
+        "Commit": "87e713f2004811062e5283a5a4efb52c883bb355",
+        "Fixed-by": "7a79b02dd1b09c235c3cf6075bccca2160d1b826",
+        "subsystem": "i2c/busses",
+        "problem_description": "Incorrect assumption that missing reset_control_status support is specific to Gen5 devices leads to improper reset handling or probe failures depending on the firmware."
+    },
+    {
+        "Commit": "3e7d63037a2b1715f70b7454630f3b2b8a922ec8",
+        "Fixed-by": "a2f9fb451c68adf2b3f7cae1bb66fb5801769ac6",
+        "subsystem": "smb/client",
+        "problem_description": "Creating an O_TMPFILE on an unsupported SMB server incorrectly returns ENOENT instead of EOPNOTSUPP."
+    },
+    {
+        "Commit": "e4029f7a9474319114d07caa90cff3ec534ef0d9",
+        "Fixed-by": "c675dea86a000e9550077c5bca97c6431786d1b7",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "Calling amdgpu_ttm_enable_buffer_funcs too early during minimal XGMI initialization fails because SDMA engines are not yet initialized, leaving TTM buffer functions permanently disabled."
+    },
+    {
+        "Commit": "c3dce117333c0e2fbdb35228d4960442d2b1ef54",
+        "Fixed-by": "c5f7c0d35c552cbaf1f0630a9731a04f7fe03948",
+        "subsystem": "thermal/qcom",
+        "problem_description": "Missing inclusion of linux/bitfield.h causes an implicit function declaration error for FIELD_GET during build."
+    },
+    {
+        "Commit": "948ee3a74f35644c16b6c100f19ff0799cebe0b5",
+        "Fixed-by": "cebe359188013aa54e3afd06cc6461c6ebbfb6d3",
+        "subsystem": "thermal/qcom",
+        "problem_description": "The qcom-spmi-adc-tm5-gen3.c source file was accidentally omitted from the commit due to a manual patch application error, causing a build failure."
+    },
+    {
+        "Commit": "a9d155ea9b44d9b979796506bec518222f10b9e6",
+        "Fixed-by": "42d100f5232f39b8ea7b00a7c2482325c7f032a4",
+        "subsystem": "net/xfrm",
+        "problem_description": "Missing RCU read lock around xfrm_nlmsg_multicast in xfrm_send_migrate_state triggers a suspicious RCU usage warning."
+    },
+    {
+        "Commit": "c43207553867c150963308418a88dcd59bb2a3f0",
+        "Fixed-by": "8afb928301700aedc9a19e9f42a0be55ee03234a",
+        "subsystem": "media/iris",
+        "problem_description": "Unmet Kconfig dependencies and potential build breakage because VIDEO_QCOM_IRIS selects QCOM_UBWC_CONFIG without properly depending on QCOM_SMEM."
+    },
+    {
+        "Commit": "b8b09dc2bf35a00d4e0556b5d6308c7b917ebda2",
+        "Fixed-by": "322371b09058ad10d0282a0e7ec8eaa764e6aaac",
+        "subsystem": "netfilter",
+        "problem_description": "The internal NF_CT_EXPECT_DEAD flag is incorrectly exposed to userspace during netlink expectation dumps."
+    },
+    {
+        "Commit": "e765c95faa10a8b4e6e9ac7d338eca9662dc56da",
+        "Fixed-by": "5fc04d4648f4e699e0df7982e37bcdec23daf39c",
+        "subsystem": "net/netfilter",
+        "problem_description": "The check for inserting dead expectations is incomplete because it is placed in nf_ct_expect_related_report(), missing the nf_ct_expect_related_pair() insertion path."
+    },
+    {
+        "Commit": "c444139cb747bf6de1922b39900fdf02281490f4",
+        "Fixed-by": "c50e628122aed077695669e25b842e778511a43d",
+        "subsystem": "fs/smb/server",
+        "problem_description": "Concurrent session updates can revive a closing connection or affect unrelated connections due to missing request_lock serialization and improper session binding checks."
+    },
+    {
+        "Commit": "e6c888202297eca21860b669edb74fc600e679d9",
+        "Fixed-by": "75dc2eda659f6be4a370734f11baf25df8a9fd80",
+        "subsystem": "sound/hda",
+        "problem_description": "The audio quirk for Lenovo Yoga Slim 7 14AKP10 incorrectly matches on the PCI SSID instead of the codec SSID and is placed after a colliding PCI quirk, preventing the fixup from being applied and leaving the bass speaker silent."
+    },
+    {
+        "Commit": "b9c5d822f677e065971481c4bafe5d84b5451082",
+        "Fixed-by": "6bd520a6e3b66010e6e87ef77a1756c6b6ce30b1",
+        "subsystem": "bpf",
+        "problem_description": "The BPF verifier diagnostics incorrectly discard function, file, and line attribution when the BTF source line string is empty."
+    },
+    {
+        "Commit": "07f14d6af9d7791fdc2b44a3dd0693e42c71d2b8",
+        "Fixed-by": "d8a2860b4a366bfa8acb3d64da2c546ea26d2091",
+        "subsystem": "tools/objtool",
+        "problem_description": "Livepatch fails to load modules referencing vmlinux symbols because objtool incorrectly uses the patched module's name instead of 'vmlinux' for the klp relocation section name."
+    },
+    {
+        "Commit": "7a1f400ff5e57f41e23c8145a54ea084039b023c",
+        "Fixed-by": "a2b83a8c8430b5a4cb43a1671c62535afcfce78d",
+        "subsystem": "bpf",
+        "problem_description": "Build failure in BPF selftests because the compiler cannot resolve a nested UAPI include added to tools/include/linux/filter.h."
+    },
+    {
+        "Commit": "b81a6c018cdeb91897696489694653c56fa60eb5",
+        "Fixed-by": "d7832ba1a4a4f462ce94c81960adf10f7e87ae7a",
+        "subsystem": "sched/ext",
+        "problem_description": "Incorrect dispatch context setup in scx_process_sync_ecaps uses the target CPU's context instead of the executing CPU's context, causing dispatch kfuncs to misoperate on a NULL or stale runqueue under core scheduling."
+    },
+    {
+        "Commit": "c3930ec119cb916be879c017ea1e389e05dbe1aa",
+        "Fixed-by": "431e735e9bb6b7fd8e2ea9d83f0627bb5c5687ee",
+        "subsystem": "scsi/qla2xxx",
+        "problem_description": "Incorrect format specifier for a size_t variable in qla29xx_process_rd_image causes a build error on 32-bit platforms."
+    },
+    {
+        "Commit": "3b89863c3fa482912911cd65a12a3aeef662c250",
+        "Fixed-by": "aedf2efd18977e0cef7eb963166e2b1fcc0aa321",
+        "subsystem": "mm",
+        "problem_description": "A stale ACTION_AGAIN state escapes walk_pmd_range when a pmd_none check triggers a continue, causing walk_pud_range to erroneously retry the walk and invoke duplicate callbacks."
+    },
+    {
+        "Commit": "c2e6c7de883034a16132b974d6236f8189d5babe",
+        "Fixed-by": "9786d424a36b3c600250290e15168e2d401b995b",
+        "subsystem": "bpf",
+        "problem_description": "The BPF selftest chained_global_func_calls_success hardcodes instruction counts that fail on CPU v4 where LLVM emits fewer instructions."
+    },
+    {
+        "Commit": "ef7607ab1c8adc6258fb1b27d08e26aecdc18a58",
+        "Fixed-by": "4cc25cdd3cffa475edb8dec8199b3227038ebcfb",
+        "subsystem": "sound/core",
+        "problem_description": "The commit introduces a spinlock invocation at every MIDI output event in a hot path, causing a significant performance regression that requires conversion to RCU."
+    },
+    {
+        "Commit": "a737737cdb9c94e40a9926cdc2320f874c05d709",
+        "Fixed-by": "101782f8945a125044347312d74d488c05741c4a",
+        "subsystem": "s390",
+        "problem_description": "The MVIY_PERCPU macro incorrectly stringifies arguments that are already C string literals without a comma separator, causing older binutils to silently drop the mviy instruction and break per-CPU address register repair after task migration."
+    },
+    {
+        "Commit": "63dfab5786ca925f6bc90903b7a7b77c99f4708f",
+        "Fixed-by": "f3c0140332fdb8f343a384570f01b879794ddae8",
+        "subsystem": "drm/xe",
+        "problem_description": "Adding the has_drm_ras check at the beginning of xe_ras_init causes an early return that incorrectly skips subsequent sysctrl initialization for platforms without the drm_ras feature."
+    },
+    {
+        "Commit": "ef3d6cca02c8a7b6465fb1691823524b86d1cb99",
+        "Fixed-by": "dbf34acdfb29781dd4a8a86f7111d99c016fc7e8",
+        "subsystem": "selftests/net",
+        "problem_description": "The tc qdisc replace command fails in the so_txtime selftest if the root qdisc already has handle 1: and is of a different kind."
+    },
+    {
+        "Commit": "da4326573ae8d00a00a6015c8c3886812cd0adb4",
+        "Fixed-by": "7df1638df97b2aaaff4731b72d4940053257c952",
+        "subsystem": "objtool",
+        "problem_description": "A heuristic in create_fake_symbols incorrectly skips the .kcfi_traps section when Clang emits an assembler-local label at offset 0, resulting in lost traps for patched functions in livepatch modules."
+    },
+    {
+        "Commit": "e9b55af47edf6e60c9a47b5604c3e15c5162ec86",
+        "Fixed-by": "0c09d1ad81ed55b02f64f4dd2e2e7c83161e5740",
+        "subsystem": "sched/ext",
+        "problem_description": "The newly added cid kfuncs are not included in the known sets of scx_kfunc_context_filter, allowing them to be incorrectly called from any BPF struct_ops program."
+    },
+    {
+        "Commit": "b72fdc651056cf66714e841bd6cc59907ab1858c",
+        "Fixed-by": "4e0ee51cc2b7a542e5679edaa14aaa82be3b4abb",
+        "subsystem": "workqueue",
+        "problem_description": "Returning NULL from wq_node_nr_active when the workqueue is not unbound leads to a NULL pointer dereference because callers do not check the return value."
+    },
+    {
+        "Commit": "ae654112eac05f316ef31587fc55e4d7160d0086",
+        "Fixed-by": "39aebe0e89469c2904e60b1e977e0d4dbf33326b",
+        "subsystem": "arm64",
+        "problem_description": "Unconditional calls to local_irq_disable() in arm64_exit_to_kernel_mode confuse pNMI state tracking and trigger a warning when interrupts are already disabled."
+    },
+    {
+        "Commit": "5c6baef3885c0e16e63d432fe31aa6f7e98e18dc",
+        "Fixed-by": "ef3d6cca02c8a7b6465fb1691823524b86d1cb99",
+        "subsystem": "selftests/net",
+        "problem_description": "The so_txtime selftest configures the ETF qdisc as the root qdisc, which drops background traffic without a socket or txtime and causes connectivity loss when the test is run across two hosts."
+    },
+    {
+        "Commit": "5fc35740c3b32d2c820c97d041282e7bca4ad0bf",
+        "Fixed-by": "e152c295d32a15975c480c352000454b9eb5fb07",
+        "subsystem": "pci/controller/dwc",
+        "problem_description": "Missing clock initialization and management in the UltraRISC DP1000 PCIe driver prevents the controller from functioning and properly handling suspend/resume cycles."
+    },
+    {
+        "Commit": "dd63353a0b5ef05a248df4c6db566b93bff0d843",
+        "Fixed-by": "bd300460cee457c50a16a42654d6de4c85562785",
+        "subsystem": "hwmon",
+        "problem_description": "Missing MODULE_DEVICE_TABLE for the OF match table prevents module auto-loading when the device tree node is present."
+    },
+    {
+        "Commit": "34acc5a8adfb76f2de63c8b8317397fb72b0aec8",
+        "Fixed-by": "465f276bb928093685c2a2b98bf0a7ccc4283b8d",
+        "subsystem": "pinctrl",
+        "problem_description": "PINCTRL_GENERIC_MUX cannot be selected in menuconfig because it incorrectly depends on MULTIPLEXER, which can only be enabled indirectly."
+    },
+    {
+        "Commit": "65be90af275675a65deed133ef67c81168e12bc9",
+        "Fixed-by": "bd76a28a739dd4d15ac119c7f9cfe3f7cf8a85c0",
+        "subsystem": "bluetooth",
+        "problem_description": "The event packet length validation incorrectly checks against the maximum payload size, causing valid events with smaller payloads to be erroneously rejected."
+    },
+    {
+        "Commit": "ff66fe6662330226b3f486014c375538d91c44aa",
+        "Fixed-by": "ec78575dde998c21be7e0cb2503b5620f34b6255",
+        "subsystem": "btrfs",
+        "problem_description": "Reverting the inode size during a short direct I/O write causes the subsequent buffered I/O fallback to skip waiting for existing ordered extents, leading to a kernel panic from overlapping ordered extents."
+    },
+    {
+        "Commit": "296a977f2bac45759a427dc57a21edb628f5c86c",
+        "Fixed-by": "68b78ad1e3533c1330dc9b7517947491c1a909c3",
+        "subsystem": "thermal/spacemit",
+        "problem_description": "Validating trip temperatures before clamping them allows distinct out-of-range temperatures to clamp to the same hardware value, resulting in an invalid low and high threshold pair."
+    },
+    {
+        "Commit": "133c81f84471f47dadf03d0505d4c308b227a736",
+        "Fixed-by": "3521d209ca70bf77b8c1dcccab5ca4df9468877f",
+        "subsystem": "sound/soc/codecs",
+        "problem_description": "The tas675x_reg_defaults array is not sorted by register address, causing regcache_lookup_reg's binary search to fail and leaving some register defaults unreachable."
+    },
+    {
+        "Commit": "d5a5c9eb2ee9ff5b4cc0be15ac7f4879d4c2f247",
+        "Fixed-by": "8211f2d74b356a02fe38aeea5b74030ac156461f",
+        "subsystem": "mtd/spinand",
+        "problem_description": "The FM25G01B and FM25G02B SPI NAND chips incorrectly use the generic read cache variants which specify two dummy bytes for the Quad I/O read operation instead of the required single dummy byte, leading to corrupted data."
+    },
+    {
+        "Commit": "c98506206912dd0ddea94f844b65b0209a57e372",
+        "Fixed-by": "27e5b8efc25b9238865288b7091ae6915c2f7c14",
+        "subsystem": "pinctrl/tegra",
+        "problem_description": "Swapped ball suffixes for the dap2_din and dap2_dout pin groups result in incorrect primary mux functions and broken DAP2 audio."
+    },
+    {
+        "Commit": "12c765be84d28f22deca10e775889f54bd571a85",
+        "Fixed-by": "d31c14e56a4f01f0689c29c0bcbcd45f65b4a473",
+        "subsystem": "net/core",
+        "problem_description": "Race condition in the generic netdev_work facility allows queuing work and taking a reference on a dead network device, leading to ref tracker warnings."
+    },
+    {
+        "Commit": "f994752b11273ded7ec6b49ae5c1d319eef21743",
+        "Fixed-by": "8e63c9e6179ace3033dcd19991f95386e9d3130f",
+        "subsystem": "net/core",
+        "problem_description": "Lockless ethtool ioctl device lookups allow udev workers triggered by KOBJ_ADD to fail with -ENODEV because the device is not yet added to the network device list during registration."
+    },
+    {
+        "Commit": "3f70ebe638581e73c8df6b3fa7eed9b45d90b083",
+        "Fixed-by": "4f5f23846d6713c05481c8cfc710bb23817bf5e9",
+        "subsystem": "rust",
+        "problem_description": "Build failure on s390 when Rust is enabled without CONFIG_HAS_IOMEM due to missing ioremap and iounmap declarations in the generic Rust IO helpers."
+    },
+    {
+        "Commit": "2fcbc4adf99790564b83381b2f239294185603d5",
+        "Fixed-by": "7a1f400ff5e57f41e23c8145a54ea084039b023c",
+        "subsystem": "selftests/arm64",
+        "problem_description": "The newly added arm64 seccomp_ptrace_x0_bypass selftest fails to build because the tools copy of linux/filter.h does not include its corresponding UAPI header."
+    },
+    {
+        "Commit": "21e37da12071da1e2d2b995219c3f394dd358300",
+        "Fixed-by": "eb78ef9cf77a156b4bdebc4417427ef99aab3125",
+        "subsystem": "selftests/arm64",
+        "problem_description": "Compilation errors in arm64 ABI selftests due to missing include paths for kernel headers and missing asm/unistd.h inclusion."
+    },
+    {
+        "Commit": "2fcbc4adf99790564b83381b2f239294185603d5",
+        "Fixed-by": "eb78ef9cf77a156b4bdebc4417427ef99aab3125",
+        "subsystem": "selftests/arm64",
+        "problem_description": "The arm64 ABI selftests fail to compile due to missing include paths for kernel headers and a hardcoded __NR_write macro."
+    },
+    {
+        "Commit": "eadc0725ab8d38c05148fce49f8d5c6a0e01f062",
+        "Fixed-by": "d5b201ed4feb7a11da242a97669424efeb724031",
+        "subsystem": "tracing",
+        "problem_description": "Multiple definitions of global BTF ID list symbols occur when two translation units instantiate the same event class, causing build failures."
+    },
+    {
+        "Commit": "b9e2d5cdaab05c997be3a69d9b372d7676683e1b",
+        "Fixed-by": "c8d3d795dd40c7fb35b39ebcb99ae5f2f1884b48",
+        "subsystem": "drm/panel",
+        "problem_description": "Missing pre_unprepare delay for the TM156VDXP25 panel causes a violation of eDP power-off timing specifications."
+    },
+    {
+        "Commit": "05f2a68b407a6817fe141dd64972c6ab8725312d",
+        "Fixed-by": "6edd69813b2d8c30c24a86052065a5dbf390a3cd",
+        "subsystem": "vfio/pci",
+        "problem_description": "Eagerly mapping all PCI BARs without checking the non_mappable_bars flag causes vmalloc warnings for devices with huge, unmappable BARs."
+    },
+    {
+        "Commit": "0f9e6db8a2237e41209322017e2e9c45729d6d45",
+        "Fixed-by": "b426fedcef8c277574bd7beed0ae9d482c03605a",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "The USB QMP PHY vdda-phy and vdda-pll supplies are swapped in the device tree, feeding incorrect voltages to the PHY and PLL."
+    },
+    {
+        "Commit": "49dab7311f57e0ba81bdcd3bcf6d763cca13532b",
+        "Fixed-by": "6b1195eeb204b455973fb05e10563a63bdd71c57",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "The USB QMP PHY vdda-phy and vdda-pll supplies are swapped in the device tree, providing incorrect voltages to the PHY and PLL."
+    },
+    {
+        "Commit": "b2f036a675805812c475c917846320949c2b0c6c",
+        "Fixed-by": "c1dfdea72a9f59b1bdad64b8ec9f918b6c1a721f",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "Swapped USB QMP PHY vdda-phy and vdda-pll voltage supplies in the device tree feed incorrect voltages to the PHY."
+    },
+    {
+        "Commit": "01d15f5f69964de3d947abb5e4c550397db68c70",
+        "Fixed-by": "c1dfdea72a9f59b1bdad64b8ec9f918b6c1a721f",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "Swapped USB QMP PHY vdda-phy and vdda-pll voltage supplies in the device tree feed incorrect voltages to the hardware."
+    },
+    {
+        "Commit": "df260487f33c8583bb78a28ef98b3b6c49265860",
+        "Fixed-by": "464fba94ac2e35b336e19c34336a07946da7128f",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "Swapped vdda-phy and vdda-pll voltage supplies in the USB QMP PHY device tree node feed incorrect voltages to the PHY."
+    },
+    {
+        "Commit": "af241225893ac4933bb8f0615f2dfda8ea2326ce",
+        "Fixed-by": "4458dcd38295c8bd13957637ba98132ba3f089b0",
+        "subsystem": "arm64/dts",
+        "problem_description": "The USB QMP PHY vdda-phy and vdda-pll supplies are swapped in the device tree, feeding incorrect voltages to the PHY and PLL."
+    },
+    {
+        "Commit": "27477b28b74fd7bb69325a423be52d80b38b25cf",
+        "Fixed-by": "5c4c48ff5aa1240a689d6508326a0ce42a71e9c4",
+        "subsystem": "selftests/mm",
+        "problem_description": "Writing to nr_hugepages fails with EINVAL on systems that do not support runtime allocation of gigantic hugepages, causing the selftest to abort instead of gracefully continuing."
+    },
+    {
+        "Commit": "78a35725e533eef0afe83f6f96cffd69be9eaac7",
+        "Fixed-by": "c509971352a6e6e6dcedb9222133c0ce0e54c8d2",
+        "subsystem": "net/airoha",
+        "problem_description": "Compile-time division by zero on UP builds due to using ARRAY_SIZE on an array of spinlocks, which have zero size when SMP and spinlock debugging are disabled."
+    },
+    {
+        "Commit": "17065203e1bc7e7f2786998d532cd93a06265156",
+        "Fixed-by": "6cd3d2c82651a9e77aa5b1b9c12aa918c0d6c0a9",
+        "subsystem": "sound/hda",
+        "problem_description": "Significant recording noise on Lenovo Yoga Pro 7 15ASH11 and Legion 7 15ASH11 due to missing limitation on internal microphone Amp-In values."
+    },
+    {
+        "Commit": "ee10b1028129a73857593801614d5bf75a15b9c7",
+        "Fixed-by": "0f289334af68a1331d4a2d2a95799ffa4ff8a046",
+        "subsystem": "riscv",
+        "problem_description": "Build failure with LLVM's integrated assembler due to missing .option norelax causing out-of-range relocation errors for RUNTIME_MAGIC."
+    },
+    {
+        "Commit": "cb8ff3ead9a3fc43727980be58c7099506f65261",
+        "Fixed-by": "575f6f8ef2abe8552af96e42c65d70964db53563",
+        "subsystem": "f2fs",
+        "problem_description": "The f2fs_iostat tracepoint hardcodes the read folio count array size to 11, which silently truncates and drops higher-order folio counts on architectures where NR_PAGE_ORDERS exceeds 11."
+    },
+    {
+        "Commit": "1f95a6cd5ad78ed27a31a20cbd1facff6f10b33d",
+        "Fixed-by": "2b5d1495bd101f3d9c13caf3923754f48ee7371a",
+        "subsystem": "hid",
+        "problem_description": "Setting LED_CORE_SUSPENDRESUME causes the LED core to send a blocking request to a disappearing HID device during system resume on T2 Macs, resulting in the backlight failing to restore and staying off."
+    },
+    {
+        "Commit": "a08de24c2b8568a26b560cda411284295decb3ba",
+        "Fixed-by": "ab88cb66cb0028cb8038b64c2fa71b0f3e91d5f2",
+        "subsystem": "fs/smb/server",
+        "problem_description": "Unconditional application of the authenticated maximum PDU size limit during decompression allows unauthenticated clients to trigger excessive memory allocations."
+    },
+    {
+        "Commit": "a08de24c2b8568a26b560cda411284295decb3ba",
+        "Fixed-by": "ba3afa8ccd154962c4a6b975b6e8b11027c5ab95",
+        "subsystem": "smb/server",
+        "problem_description": "Missing validation of compression flags and chained mode negotiation before memory allocation in ksmbd_decompress_request allows a remote attacker to trigger large transient memory allocations."
+    },
+    {
+        "Commit": "a08de24c2b8568a26b560cda411284295decb3ba",
+        "Fixed-by": "0710dd08824a6f3b9892fc5be24acd2e4a36f178",
+        "subsystem": "smb/server",
+        "problem_description": "The SMB2 compression decoder accepts Pattern_V1 payloads even when they were not negotiated by the client."
+    },
+    {
+        "Commit": "b55b6b9ad76cdb82123c62a15c6a4ebe4abb8bfa",
+        "Fixed-by": "e8ee988c0087248324dbd3da486d22045e4a4079",
+        "subsystem": "powerpc/bpf",
+        "problem_description": "Build failure in bpf_jit_emit_func_call_rel due to an unused variable 'ret' when CONFIG_PPC_KERNEL_PCREL is enabled."
+    },
+    {
+        "Commit": "aaaf31be04260316036f50a05b7d015c0d36b55a",
+        "Fixed-by": "17007cd700601777d9ee203a13d97e64ece3a10f",
+        "subsystem": "pinctrl",
+        "problem_description": "Memory leak of pinctrl maps in pinctrl_generic_to_map() due to missing deallocation when subsequent map addition or configuration parsing steps fail."
+    },
+    {
+        "Commit": "567621523ab7a2bc4a923757cba30bde8900447a",
+        "Fixed-by": "fe39a233ea52601d416a1d02e7f70049aae47016",
+        "subsystem": "rust",
+        "problem_description": "Build failure in rusttest due to the compiler finding multiple candidates for the zerocopy dependency because an explicit path was not provided."
+    },
+    {
+        "Commit": "a262fc49e0aafdeeb1b4fd8cb0d79a0fde447757",
+        "Fixed-by": "2f0c30d0d1752a2864b566420ec44131af257681",
+        "subsystem": "selftests/kvm",
+        "problem_description": "Unconditional linking of the VFIO library in KVM selftests causes cross-compilation issues on non-x86 architectures due to unnecessary dependencies."
+    },
+    {
+        "Commit": "0880082c27b6251cc3fea307dffa6899ad163e8b",
+        "Fixed-by": "f6970d8535a95c137f05e9ca825072de3b217b88",
+        "subsystem": "sound/soc",
+        "problem_description": "Missing stub for sdca_fdl_free_state causes build failures when FDL support is not built into the kernel."
+    },
+    {
+        "Commit": "729c83a3330c0a56662cd0d8e40db96d41c00a54",
+        "Fixed-by": "6bb5066cfcd4296ac5e0b6872f43f96a43bfe566",
+        "subsystem": "net/wireless/mediatek",
+        "problem_description": "EAPOL frames for non-MLD stations egress from the wrong BSS because their link_id is left as UNSPECIFIED, which skips the per-link lookup and leaves the omac index at 0."
+    },
+    {
+        "Commit": "8bf5e84998c3fd00ca9e29a8a8143d23ea1e8663",
+        "Fixed-by": "284497419abd878994f0e0bdda962758f0a568dc",
+        "subsystem": "misc/issei",
+        "problem_description": "Incorrect printk format specifier %lu is used for a size_t argument in heci_write_hbuf and heci_read_hbuf, causing build errors on 32-bit platforms."
+    },
+    {
+        "Commit": "b7846af2e6ca87fecac0e90c15e69217e174b126",
+        "Fixed-by": "1ae37d355114a94eb88c418e22e3e9a9e241b393",
+        "subsystem": "nvmem",
+        "problem_description": "Missing ARM64 dependency in Kconfig causes a build failure on 32-bit ARM thumb2 builds with clang due to the use of arm_smccc_1_1_invoke."
+    },
+    {
+        "Commit": "9b836641d3bfa1ab096ec6263f0fa6880cb9c5ef",
+        "Fixed-by": "be809b60cbb61aab96179f44ac3670242ae72996",
+        "subsystem": "rust",
+        "problem_description": "Build failure due to an undefined symbol when CONFIG_DMA_SHARED_BUFFER is disabled because the dma-resv helper is included unconditionally."
+    },
+    {
+        "Commit": "32750c77e811dba81eb92abf9182b1f424255d3a",
+        "Fixed-by": "b4343aebd3a4dd255b15b2e5b1363d6399da302f",
+        "subsystem": "kunit",
+        "problem_description": "Kunit tests running in kthreads fail to resolve paths or interact with initramfs because kthreads now start in nullfs by default, requiring the tests to explicitly override the init fs."
+    },
+    {
+        "Commit": "9db68ec534c5fdcfeb2e330b8eb6f555b3af78ed",
+        "Fixed-by": "1e7b04c12c077e8829991833a9aa2cb3bdacab61",
+        "subsystem": "pinctrl/qcom",
+        "problem_description": "The Shikra pinctrl driver omits the intr_target_width configuration, causing it to default to a 3-bit mask instead of the hardware-required 4 bits, which can corrupt adjacent bits and mis-route interrupts."
+    },
+    {
+        "Commit": "01cf3e27824d1cf2dcb815e59087c6556819b039",
+        "Fixed-by": "830ead322c39c99bf972425b3c35323ec56c29de",
+        "subsystem": "clk/qcom",
+        "problem_description": "Incorrect use of test_ctl_hi1_val instead of test_ctl_hi_val in DEFAULT_EVO PLL configurations prevents the test control register from being programmed correctly."
+    },
+    {
+        "Commit": "88ddafb01ec05bb3cd1ffb51b740bfbc989ab955",
+        "Fixed-by": "b589944ecd95fe4a51bc2aab13ce83b298b7bcc8",
+        "subsystem": "arm64",
+        "problem_description": "The ADSP remoteproc node is missing the required fallback compatible string for SM8550, which can prevent the driver from properly matching and probing the device."
+    },
+    {
+        "Commit": "4559b435f741bb6389a30aa440307729a018ce92",
+        "Fixed-by": "770d1448435bca2b1cd00854dc9401320b584d5b",
+        "subsystem": "arm64",
+        "problem_description": "The PCIe iommu-map entries specify only one cell for the SID, omitting the SID mask required by the apps_smmu provider which uses 2 iommu-cells."
+    },
+    {
+        "Commit": "85a1eb421dfa3b69fc3028c48597ee3aa90a5393",
+        "Fixed-by": "b3938d240803b2b114f19f8375493033376d5dba",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "Missing eUSB2 repeater regulator supplies in the Eliza CQS SoM device tree causes the hardware to be unpowered and malfunction."
+    },
+    {
+        "Commit": "c1da9374c3e08c6eb06106256cac3875fb5c467f",
+        "Fixed-by": "a44338975cf80aa0aed629f5c6495aa18250897f",
+        "subsystem": "arm64/dts",
+        "problem_description": "Missing vbus-supply property in the Type-C connector device tree node causes a warning and fallback to a dummy regulator."
+    },
+    {
+        "Commit": "d338ab1d90603f875c4f7ed223406535378173a5",
+        "Fixed-by": "57c0741b8c15b93ba4aa92c6618cde6f3f4115b2",
+        "subsystem": "tty/serial",
+        "problem_description": "Clearing CON_PRINTBUFFER during 8250 port re-registration causes the console to start at the end of the printk ring buffer, losing all messages logged before UART registration."
+    },
+    {
+        "Commit": "336e3e4a1ab37b6826fae27e53cd2ac43c9a96ca",
+        "Fixed-by": "442ecdc83d00d6c2312541c4e0ada47e02805fcb",
+        "subsystem": "net/dsa/realtek",
+        "problem_description": "Missing mutex_destroy for l2_lock causes warnings or issues when CONFIG_DEBUG_MUTEXES is enabled."
+    },
+    {
+        "Commit": "9da2c8672f77108a1f09232320f22225ab53dde9",
+        "Fixed-by": "a95f3e9b8985fc0e21bfcf727e941c1f03476927",
+        "subsystem": "net/dsa",
+        "problem_description": "Missing mutex_destroy for vlan_lock causes debug warnings when the lock is discarded with CONFIG_DEBUG_MUTEXES enabled."
+    },
+    {
+        "Commit": "06c2dce2d0f69727144443664182052f56d1da35",
+        "Fixed-by": "fc9c7ca5fcbf7fe3bcba87d1ff72f0009071ba86",
+        "subsystem": "net/psp",
+        "problem_description": "NULL pointer dereference in psp_nl_multicast_per_ns due to a race condition with concurrent network namespace teardown."
+    },
+    {
+        "Commit": "b5f53e6d3d32f2884d71500bb6d773c7bfe21f2e",
+        "Fixed-by": "52075128273ace53e6254e37899a47d40d4baf45",
+        "subsystem": "x86/cpu",
+        "problem_description": "Incorrect assignment of the Zen6 CPU feature flag to Zen5 CPU models 0xd0 through 0xd7 in family 0x1a."
+    },
+    {
+        "Commit": "12cf826bf1dd9275773cbef02c81ec1c67def7c3",
+        "Fixed-by": "985f5e12f3cdf43030e13c2bbd154913133b5c3f",
+        "subsystem": "drm/panthor",
+        "problem_description": "Missing validation in the vm_bind ioctl path allows user-space mappings to intersect with the address space carve-out reserved for kernel buffer objects."
+    },
+    {
+        "Commit": "b574a82d10de9c32ddc005c6a5d92e037f35ed43",
+        "Fixed-by": "5f0ead7e66f5c30e98f38e5a85b48123300e63c5",
+        "subsystem": "mm/damon",
+        "problem_description": "Missing kobject_del in the error path of damos_sysfs_populate_region_dir causes directory creation failures due to name conflicts when kobject release is delayed."
+    },
+    {
+        "Commit": "af7cb41af9a9310a6e654942199d2bb29f4f0021",
+        "Fixed-by": "f5b4541b851aaf58de8f47a078308d72f73b9cb4",
+        "subsystem": "mm/damon",
+        "problem_description": "Missing kobject_del() in the error path of damon_sysfs_probes_add_dirs() causes directory creation failures due to name conflicts."
+    },
+    {
+        "Commit": "9db839d52ccd9af67d460cb9ac893276a74b88e5",
+        "Fixed-by": "bff5af3c934740481a316c5ae1cd4a09a43134d0",
+        "subsystem": "riscv",
+        "problem_description": "Device tree schema validation fails for the ethernet PHY node on the K3 com260 board because the node name is 'phy' instead of 'ethernet-phy'."
+    },
+    {
+        "Commit": "6d6536c880febe2340d8d388f42660eccff5aa81",
+        "Fixed-by": "9b371a8b13fd0e8e6f3b12f4ef7e58927d6f62ee",
+        "subsystem": "riscv",
+        "problem_description": "Device tree schema validation fails for the ethernet PHY node on the K3 pico-itx board because the node name is phy instead of ethernet-phy."
+    },
+    {
+        "Commit": "c26339e1df335423bcbb83d6fa6ff94b1545b8ed",
+        "Fixed-by": "974d0be0cb8e48d63b9d413a2e1a8fba16cd2583",
+        "subsystem": "fs/writeback",
+        "problem_description": "Build failure in the ext4 module due to the undefined symbol __inode_attach_wb when CONFIG_CGROUP_WRITEBACK is enabled."
+    },
+    {
+        "Commit": "bee25f97ad24641df55cb3887eb5bfcb2b9d8fbc",
+        "Fixed-by": "bddf7540099bf653eaea339e886add6f62555cf3",
+        "subsystem": "powerpc",
+        "problem_description": "Calling nap_adjust_return() after irq_exit_rcu() in async interrupt handlers allows nested interrupts to erroneously redirect their return address to the idle nap return path, causing stack corruption and system panics on PPC970."
+    },
+    {
+        "Commit": "1e0bd438b87659396bab4e795a3948a2ac58047c",
+        "Fixed-by": "b47dcd7b41e22fa3383c2aa07f2935c7b8725f88",
+        "subsystem": "platform/surface",
+        "problem_description": "Missing include of linux/err.h causes build errors due to the use of PTR_ERR and IS_ERR macros."
+    },
+    {
+        "Commit": "3c8e7ba0e3996723f7e4be7c982826a9c2be828b",
+        "Fixed-by": "4a2e2c563b0ee2253a7902f775bf71232820186d",
+        "subsystem": "pinctrl/qcom",
+        "problem_description": "Incorrect GPIO pin assignments for the audio_sec_mclk_in1 and audio_sec_mclk_out1 groups cause pinmux selection failures and trigger a WARN_ON."
+    },
+    {
+        "Commit": "bb21ee31f5753a7972148798fd7dfb841dd33bdb",
+        "Fixed-by": "0c569e22020f53ddfac0099b0aa193907bfbcd6f",
+        "subsystem": "thermal/qcom",
+        "problem_description": "The change in iio_read_channel_processed_scale to return 0 instead of IIO_VAL_INT on success breaks adc_tm5_get_temp which treats the new success return value as an error."
+    },
+    {
+        "Commit": "c9a5688380865b968f7aef6534de632857ab5be0",
+        "Fixed-by": "9972befc3e34ff8b6847198c84f11bfc312dde40",
+        "subsystem": "kvm/s390",
+        "problem_description": "FOLL_LONGTERM pinning fails for file-backed guest memory in kvm_s390_adapter_map, causing irqfd adapter registration to fail."
+    },
+    {
+        "Commit": "b2022068dea0fa838f63591085015c02c459479e",
+        "Fixed-by": "c715007b21a4f6c8ed855a48adf1732702cf1c15",
+        "subsystem": "infiniband/mlx5",
+        "problem_description": "The UMR XLT buffer allocated via kmalloc may lack required page alignment because the requested size is not aligned to PAGE_SIZE."
+    },
+    {
+        "Commit": "e187bc02f8fa4226d62814592cf064ee4557c470",
+        "Fixed-by": "96b2dbbe58a1ea5df8d29c2fe24b5f04715f4443",
+        "subsystem": "erofs",
+        "problem_description": "NULL pointer dereference in mincore when accessing file->f_path.mnt for erofs backing files that were set up without a valid path."
+    },
+    {
+        "Commit": "da3039e91d1f835874ed6e9a33ea19ee80c2cb92",
+        "Fixed-by": "c2744d5f3aea474513fd2298daecb94a952ce441",
+        "subsystem": "sound/core",
+        "problem_description": "Use-after-free in ALSA timer due to failing to clear the SNDRV_TIMER_IFLG_DEAD flag after closing, which causes subsequent closes on reopened instances to return early and leave freed objects on timer lists."
+    },
+    {
+        "Commit": "cfe5c91cb73c87f9021e446ec9d323c483851c46",
+        "Fixed-by": "9db839d52ccd9af67d460cb9ac893276a74b88e5",
+        "subsystem": "riscv",
+        "problem_description": "The ethernet phy compatible string is incorrectly set to a generic value instead of the specific phy ID, causing phy ID detection to fail because the phy reset GPIO is asserted during initialization."
+    },
+    {
+        "Commit": "74657a376960252e248089e518cfaaf813906989",
+        "Fixed-by": "6d6536c880febe2340d8d388f42660eccff5aa81",
+        "subsystem": "riscv",
+        "problem_description": "The ethernet PHY on the pico-itx board fails to initialize because the PHY ID cannot be read while the reset GPIO is asserted, requiring the PHY ID to be manually specified in the device tree."
+    },
+    {
+        "Commit": "d595255241e5fec0c94adeebf2565524398e37c5",
+        "Fixed-by": "26a94400ffa4fcbeff32e23abebb83a1a20eb401",
+        "subsystem": "sound/hda",
+        "problem_description": "Missing PCI ID quirk for TongFang X6SP45xU and incorrect naming for X6KK45xU causes headphone detection failure."
+    },
+    {
+        "Commit": "c6073743d0c7f011461bc542c9112180471affad",
+        "Fixed-by": "797fe91e50d6927f90f0c3b4444277c2c7c8b42b",
+        "subsystem": "liveupdate",
+        "problem_description": "KHO scratch memory is aligned to CMA_MIN_ALIGNMENT_PAGES instead of MAX_ORDER_NR_PAGES, causing the buddy allocator to access uninitialized struct pages and crash during deferred memory initialization."
+    },
+    {
+        "Commit": "94cb9e8f270797e489633cfa53d2d44afecb8bef",
+        "Fixed-by": "a2fd5a9f09587eddf4d96c7b46541359985c6ea8",
+        "subsystem": "pinctrl/nxp",
+        "problem_description": "Unmet Kconfig dependency for PINCTRL_S32CC because it depends on GPIOLIB instead of selecting it, causing warnings when selected by PINCTRL_S32G2."
+    },
+    {
+        "Commit": "cfe5c91cb73c87f9021e446ec9d323c483851c46",
+        "Fixed-by": "12b0d602e8642297ec369eeb99366d37c8a3a120",
+        "subsystem": "riscv",
+        "problem_description": "The PHY reset deassert time is incorrectly set to 10ms instead of the required 50ms, which is insufficient to guarantee register access for the RTL8211F PHY."
+    },
+    {
+        "Commit": "74657a376960252e248089e518cfaaf813906989",
+        "Fixed-by": "a225e19a4cc4e040ca0389cf0bbe209c23f5c92d",
+        "subsystem": "riscv",
+        "problem_description": "The PHY reset deassert time in the K3 Pico ITX device tree is too short to guarantee register access for the RTL8211F PHY."
+    },
+    {
+        "Commit": "c191b319f20873cd62320cf738a53875827cd89d",
+        "Fixed-by": "2c1bd78dc8e2221549409769a76c39304b82a1b0",
+        "subsystem": "dpll",
+        "problem_description": "Cross-driver pin registration causes netlink reporting and SET operations to incorrectly use a foreign DPLL's reference, resulting in missing pin-level attributes and failed operations due to incomplete callbacks."
+    },
+    {
+        "Commit": "993555b5476cf02009c2ef5c21e8403baee945d1",
+        "Fixed-by": "5dd588f49b85e0a727adee125d1a61e7f6012617",
+        "subsystem": "arm64/dts",
+        "problem_description": "Incorrect WiFi host-wake interrupt trigger type configured as active low instead of active high causes an endless interrupt loop when the WiFi module enters sleep state."
+    },
+    {
+        "Commit": "82a81a7352bcf5f2756ac33d47ee0582737e9a85",
+        "Fixed-by": "1135704ed22f54873eb0498a232611d9eca30dd4",
+        "subsystem": "fs/exfat",
+        "problem_description": "A race condition between zeroing the page-cache gap during a valid_size extension and concurrent stores through a shared writable mapping causes valid user data to be overwritten with zeroes."
+    },
+    {
+        "Commit": "4c735bf1bc22fd6ee66ab4bffe1d7599c3964781",
+        "Fixed-by": "a33c40b93ccf5177e042253807d40e0b92e7f206",
+        "subsystem": "kvm",
+        "problem_description": "Using kmalloc for temporary cryptographic buffers on SEV-SNP hosts causes RMP page fault panics because the firmware temporarily takes ownership of the entire page, making it inaccessible to other kernel objects sharing the same page."
+    },
+    {
+        "Commit": "c1079aebb4de218caa86c44f9a53700d1a582683",
+        "Fixed-by": "112badb7245059c176e3924f9cd9ce2933cb0082",
+        "subsystem": "drm/imagination",
+        "problem_description": "The pvr_job_create tracepoint incorrectly logs the firmware heap offset instead of the full firmware address for the hardware render target."
+    },
+    {
+        "Commit": "5e939544f9d2b4d5c052a07cfcde97de44263946",
+        "Fixed-by": "133cca19d75b9264bc2bbcdf2c3b80e3da207649",
+        "subsystem": "net/mptcp",
+        "problem_description": "Build failure on legacy ARM architectures due to BUILD_BUG_ON assertions triggering because the flags struct group size is aligned to 32 bits instead of the expected 16 bits."
+    },
+    {
+        "Commit": "0baad6f9b9970c6e3f1d33dbfd17d1a77702771d",
+        "Fixed-by": "0ef8faff490be6aa1a1e5dfcb0c8492689e91c0f",
+        "subsystem": "fs",
+        "problem_description": "A blanket check in fs/super.c that skips non-root memcg shrinker invocations incorrectly short-circuits XFS's memcg-aware inode-reclaim hook."
+    },
+    {
+        "Commit": "2f60e351633044dee88b63fb1600e284d2476e9c",
+        "Fixed-by": "5ed8cdb56cd90859e0c7f269b4a7c2b1571419b2",
+        "subsystem": "riscv",
+        "problem_description": "The TH1520 I2C1 device tree node incorrectly specifies an extra pclk clock instead of using a single clock for both APB and reference."
+    },
+    {
+        "Commit": "458f2a712ab42b7d3615208862922dc35fe90ef9",
+        "Fixed-by": "07e769ba3d82ac614725c81c512a8b54d33f2c9e",
+        "subsystem": "drm/v3d",
+        "problem_description": "The GPU clock is disabled during runtime suspend without first quiescing outstanding AXI memory transactions, leading to hardware freezes and MMU faults upon the next resume."
+    },
+    {
+        "Commit": "b71a623598d319cae2acd9df1b297cc948c58bc7",
+        "Fixed-by": "057fad48d7f9f1caa90bd32295a03228254cf1e3",
+        "subsystem": "drm",
+        "problem_description": "Missing drm_panel.h header inclusion in several DRM drivers causes build failures when using drm_panel_put()."
+    },
+    {
+        "Commit": "4a68c7516c57a3d03b406c8aaa073c62149aad68",
+        "Fixed-by": "b201029ca6956e18a6762fc955d1f497030ff912",
+        "subsystem": "drm/i915",
+        "problem_description": "Using the safe window path for the Display State Buffer (DSB) can cause a hardware stall if the set context latency is zero, as the safe window becomes effectively zero and is never signaled by the hardware."
+    },
+    {
+        "Commit": "27d5e84e810b0849d08b9aec68e48570461ce313",
+        "Fixed-by": "ff194cffd586cbd4cc49eccb002c65f2a902a277",
+        "subsystem": "net/qrtr",
+        "problem_description": "The hardcoded maximum node limit of 64 is too low for certain deployments, breaking functionality for systems with a larger number of nodes."
+    },
+    {
+        "Commit": "feb662d9168b63e1d4c02671ec96005410c6f3ce",
+        "Fixed-by": "5ff172f6c94d282d83cb88bdfec5f647ad9c6105",
+        "subsystem": "mm/slab",
+        "problem_description": "Sparse checker fails with an undefined identifier warning because it does not support the __builtin_infer_alloc_token compiler builtin."
+    },
+    {
+        "Commit": "24799831d631239ff21ea1bf7feee832df48b81f",
+        "Fixed-by": "f7acb19abcd867e5d2e1feb6197dcc65aa3b8e45",
+        "subsystem": "rust",
+        "problem_description": "The lifetime parameters on Core and CoreInternal are covariant instead of invariant, allowing them to be coerced into shorter lifetimes and defeating the purpose of the lifetime bound."
+    },
+    {
+        "Commit": "cfc00618b9dfc75cd507f1a4f0d83b4429627399",
+        "Fixed-by": "5763790965eb3414148720f030b20fd5ccc438ca",
+        "subsystem": "bpf",
+        "problem_description": "The globals_pages variable in libarena_asan_init is used without initialization, triggering a maybe-uninitialized compiler warning that breaks the build under -Werror."
+    },
+    {
+        "Commit": "554e4eb9e4b75358f73733e2be7a59aaf4b7875e",
+        "Fixed-by": "40f986aed81ff4d137ec101c6babbbc642690eac",
+        "subsystem": "bpf",
+        "problem_description": "Incorrect use of ASSERT_OK_PTR to check the return value of malloc causes a false positive uninitialized variable compiler warning."
+    },
+    {
+        "Commit": "0b31f297557fff0941769e8257198151a0fbe8bf",
+        "Fixed-by": "be2b5b17b7053fee142939076746d26b2d6c9702",
+        "subsystem": "phy/rockchip",
+        "problem_description": "The early return when SSC is disabled skips the SSC spread direction configuration for PCIe and USB3, causing USB3 link bring-up failures."
+    },
+    {
+        "Commit": "d055768429b3a49090e5f633fa45d7b964fc23ec",
+        "Fixed-by": "22e77d81d0a9ab3aee1c5538b3f2f8a66930bfa7",
+        "subsystem": "rust/drm",
+        "problem_description": "A non-const read8 invocation in the vmap_io unit test causes a build failure when CONFIG_CC_OPTIMIZE_FOR_SIZE is enabled because the address validity check is not optimized away."
+    },
+    {
+        "Commit": "479bfeba2eb62666cd4b981c8e721c61dcf36e7d",
+        "Fixed-by": "af01dab0c39a7aefc47a109201e4134ea6bd3005",
+        "subsystem": "hwmon/pmbus",
+        "problem_description": "Accessing unsupported PMBus limit and status registers during driver initialization for ADPM12250 triggers a CML error and asserts ALERT."
+    },
+    {
+        "Commit": "01c836788b373329cd6dfea6508d80314eb9bae5",
+        "Fixed-by": "79f408cc06525c6cd01d1a5bf83086a1beede49b",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "Using multiple SDMA schedulers for TTM on GPUs that do not support concurrent VM flushes causes concurrent flushing of VMID 0."
+    },
+    {
+        "Commit": "e4029f7a9474319114d07caa90cff3ec534ef0d9",
+        "Fixed-by": "79f408cc06525c6cd01d1a5bf83086a1beede49b",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "Using multiple SDMA schedulers for TTM on GPUs that do not support concurrent VM flushes causes concurrent flushing of VMID 0."
+    },
+    {
+        "Commit": "9a8f11f6f786f42b35c9b0944a2b87052d28cd48",
+        "Fixed-by": "e0e1a9712fb1767dcf5ab69ae47dac2d1a080c3c",
+        "subsystem": "arm64",
+        "problem_description": "The PCIe1 node incorrectly includes the supports-clkreq property despite the standard PCIe slot on the i.MX943 EVK lacking the CLKREQ# signal wiring, which causes compatibility issues with some PCIe cards."
+    },
+    {
+        "Commit": "77bfebf110773f5a0d6b5ff8110896adb2c9c335",
+        "Fixed-by": "bb66b1a3452534adb8b72abf2f761375970fe472",
+        "subsystem": "android/binder",
+        "problem_description": "Transaction failures are incorrectly logged as warnings even when the cause is a dead or frozen process without an associated errno."
+    },
+    {
+        "Commit": "24a63d4c9d3ce3afc99f698cff62d79c457fc5ca",
+        "Fixed-by": "7acc334cf038b5ac1a7ee480d3ec59d288d2f5f3",
+        "subsystem": "media/rockchip",
+        "problem_description": "The RGA3 driver incorrectly adjusts the quantization of RGB formats to limited range when converting between RGB and YUV because the format check condition applies to both RGB and YUV formats instead of just YUV."
+    },
+    {
+        "Commit": "833740a2333c2e4db4e02e3d0ffba04e8718a5f3",
+        "Fixed-by": "9a3f43b30373c61477d0d3ab52946c05f9492bf9",
+        "subsystem": "platform/chrome",
+        "problem_description": "The bounds check on sensor_num incorrectly evaluates and drops timestamp events, which typically use a sensor number of 255, resulting in lost events and log spam."
+    },
+    {
+        "Commit": "267ec4d7223a783f029a980f41b93c39b17996da",
+        "Fixed-by": "c4f4c0fc551cbcdccbbbc2d874d7d6440c7b4983",
+        "subsystem": "block",
+        "problem_description": "Detaching a loop device fails to clean up manually added partitions because the partition scan flag is no longer set, leaving dead partition devices behind that cause subsequent configuration attempts to fail."
+    },
+    {
+        "Commit": "a5b98009f16d8a5fb4a8ff9a193f5735515c38fa",
+        "Fixed-by": "fadeedd7cfc5d73d33fa3d7ac54b9b27aabd09d2",
+        "subsystem": "sched/psi",
+        "problem_description": "Holding cgroup_mutex across psi_trigger_create() creates unwanted locking dependencies with the fork path, leading to a deadlock when racing with paths that block forks and grab cgroup_mutex."
+    },
+    {
+        "Commit": "759455848df0b9ac3acabdbedcdc4a55af67935f",
+        "Fixed-by": "755effecd6fc7d8ff18f09135cb5e3cf98c20d55",
+        "subsystem": "dax",
+        "problem_description": "Continuing the probe process when the remapped region starts after the device's data region leaves the virtual address silently misaligned."
+    },
+    {
+        "Commit": "d5406bd458b0ac10b1301a4d5801d85c8f648637",
+        "Fixed-by": "f48884ac31b6bfc99f36b3f207b8c0cbe5d54bd7",
+        "subsystem": "dax",
+        "problem_description": "Failure to clear pgmap->ops and pgmap->owner on driver unbind leaves stale pointers in the shared pgmap for static DAX devices, leading to potential use-after-free during memory failure handling."
+    },
+    {
+        "Commit": "6b2e585142e68b4af821a1eca4d1e8d54bd49bb8",
+        "Fixed-by": "9515af581da976911aea820175afb05be803ae8c",
+        "subsystem": "cxl",
+        "problem_description": "Calling platform_device_add before updating the mock device array causes the CXL subsystem to fail to recognize the newly added mock device."
+    },
+    {
+        "Commit": "3d406299d8829747fe2e8692f4c29fe3dc1d101f",
+        "Fixed-by": "da7b5fd4e17f8e44c5590f2d603c01d499f056e6",
+        "subsystem": "tty/serial",
+        "problem_description": "Missing inclusion of the 8250.h header in 8250_hub6.c causes a missing prototype compiler warning for hub6_match_port."
+    },
+    {
+        "Commit": "82b78182eacf82c1847c6f1fd93d91c15efb69cf",
+        "Fixed-by": "b59ec72fec247b90dc26f17c5b1ee9f1e0fe334c",
+        "subsystem": "rust/drm",
+        "problem_description": "The DriverGpuVm trait and its associated data types lack Send and Sync bounds, unsoundly allowing non-thread-safe data to be shared and dropped across threads."
+    },
+    {
+        "Commit": "f94563fac26912ef5a51fd16ae1d83f17b24b19d",
+        "Fixed-by": "fb4751e79c45cb48cff1c1d86b10a9cc6f6612fe",
+        "subsystem": "tools/perf",
+        "problem_description": "A teardown hang occurs in perf record during system-wide multi-threaded sessions because background threads fail to recognize control pipe closure and fdarray__filter incorrectly clears non-filterable file descriptors."
+    },
+    {
+        "Commit": "5e6dfb87b191f34b1bb7cfb4d668665e5b70687b",
+        "Fixed-by": "302fbbb4fcbdeac2dc8c63a56c1c4e38c4781958",
+        "subsystem": "tty/serial/8250",
+        "problem_description": "Console flow control timeouts occur during suspend/resume with no_console_suspend because the canary workaround fails to reset the scratch register."
+    },
+    {
+        "Commit": "410002f8139cbf902f1567f0a8cbf0c5b6f43da2",
+        "Fixed-by": "e1a1729419e3e440668dbc1ae95b0dc2004172fe",
+        "subsystem": "fs/fat",
+        "problem_description": "Excessive stack usage causing a frame size build error in fat kunit tests due to allocating a large msdos_sb_info structure on the stack."
+    },
+    {
+        "Commit": "a58e6b79b432f2f08e6a2bbe638a60e4424a7cba",
+        "Fixed-by": "e6979d05c6a6fe79980f08d63f039f0b27c30a1c",
+        "subsystem": "sched_ext",
+        "problem_description": "cmask_equal, cmask_weight, and cmask_subset use incorrect word walk bounds that can cover a slack word past the active range, leading to spurious mismatches, inflated counts, and spurious violations."
+    },
+    {
+        "Commit": "dca6e08c923a44d2d66b955e03dd57a3a38c2b94",
+        "Fixed-by": "f5ef65adf81da3dbce4e692e48c1754c0bb95da0",
+        "subsystem": "drm/xe",
+        "problem_description": "An unused function warning is triggered for xe_pt_svm_userptr_notifier_lock when CONFIG_DRM_GPUSVM is disabled because its only caller is compiled out."
+    },
+    {
+        "Commit": "047979af3bf6a118066c81099162d518de63abb1",
+        "Fixed-by": "eda39f98bbc5ce8b7b0be10193d2de38ed59da6c",
+        "subsystem": "tools/perf",
+        "problem_description": "Removal of existing Zen 5 core events breaks backward compatibility for userspace tools relying on those events."
+    },
+    {
+        "Commit": "80ccbd97ffee8ad2e73167d826fe7be548364365",
+        "Fixed-by": "3359422bf0a1140e96d783a19a397686e580a3ca",
+        "subsystem": "drm/xe",
+        "problem_description": "Build warning due to unused function xe_pt_svm_userptr_notifier_lock when CONFIG_DRM_GPUSVM is disabled."
+    },
+    {
+        "Commit": "7fb39e4eb4c3db52e4707a6a1cd45362f7e803f5",
+        "Fixed-by": "18d62044cda7a2b40f59d910659c0b0d6accad37",
+        "subsystem": "sched/ext",
+        "problem_description": "Runqueue lock tracking state is not updated during lock handoffs, leading to a lockdep assertion when restoring a runqueue that is no longer held."
+    },
+    {
+        "Commit": "1c2b66a7d7257d2652aa41f9a860ecb96dde27dd",
+        "Fixed-by": "c7eaea5c6eeb391d445583fa6419c957ca74a86b",
+        "subsystem": "usb/typec",
+        "problem_description": "Allocating the large typec_altmode structure on the stack in gaokun_ucsi_handle_usb_mode causes a stack frame size warning and potential stack overflow."
+    },
+    {
+        "Commit": "48209d763c22354c78f6138f4a83814c2f2a3578",
+        "Fixed-by": "cd9993d22a577339a93dcb401574e874ea29b143",
+        "subsystem": "tools/tracing/rtla",
+        "problem_description": "Missing linkage of ctype.o in the rtla Makefile causes build failures due to unresolved ctype symbols used by string operations."
+    },
+    {
+        "Commit": "493cb869874cd301c370adf9a3f9577942c4f0f1",
+        "Fixed-by": "f135fd1bc76d052f1bf4b1cc987cd47fe0a71d8a",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "Typo in the Samsung panel compatible string using the letter 'o' instead of the number '0', which prevents the panel driver from matching and probing."
+    },
+    {
+        "Commit": "043af31c8d3031bbeb77dfdc6373005ef3b8a23b",
+        "Fixed-by": "2726b5758f80a546a4ddeec5019e72035a7fa166",
+        "subsystem": "platform/x86/amd/pmc",
+        "problem_description": "The AMD 1Ah M80H SoC incorrectly uses the soc15_ip_blk array for S0i3 subsystem accounting, leading to incorrect IP block reporting via debugfs."
+    },
+    {
+        "Commit": "6b3bbe770f4ca0439710b7c42f88b9f6eeebabd0",
+        "Fixed-by": "cdadb298b182d4615521380a520eb2c7cb762843",
+        "subsystem": "platform/x86",
+        "problem_description": "Incorrect and too low power limits are configured for the ASUS ROG Strix G16 G614PR laptop model."
+    },
+    {
+        "Commit": "100baf0184896f859290a684f864b8200d8ac872",
+        "Fixed-by": "8d187d4b33c262c0f3e44842553521151d8629e8",
+        "subsystem": "kvm/arm64",
+        "problem_description": "Assigning the 32-bit signed value TLBI_TTL_UNKNOWN to an 8-bit signed variable causes incorrect TLBI level propagation in kvm_pgtable_stage2_relax_perms."
+    },
+    {
+        "Commit": "9920249a5288e7cbec222cd52996bbd9aac7ec9e",
+        "Fixed-by": "4e28aa8f7ee26d67a4addee6e3980f1cbf861b49",
+        "subsystem": "drm",
+        "problem_description": "Build failures occur on certain compilers because the indirect goto in the drm_exec_until_all_locked macro cannot be lowered to a direct jump when the macro is used multiple times in the same function."
+    },
+    {
+        "Commit": "4f1cab2e4863d96ce13b8d94151f4848e38c3d5b",
+        "Fixed-by": "3d04d9f390eeaab4d9e1ed4e9737e3d83581e18b",
+        "subsystem": "drm/i915",
+        "problem_description": "Allowing set context latency to be 0 on platforms with always-on VRR timing generator causes underruns and other issues on PTL."
+    },
+    {
+        "Commit": "ab1513597c6cf17cd1ad2a21e3b045421b48e022",
+        "Fixed-by": "4bd0b274054f2679f28b70222b607bb0afc3ab9a",
+        "subsystem": "bluetooth",
+        "problem_description": "Use-after-free of the socket in bt_accept_dequeue because the temporary reference is dropped before unlinking the socket and taking a new reference."
+    },
+    {
+        "Commit": "b66774b48dd98f07254951f74ea6f513efe7ff8b",
+        "Fixed-by": "d38eaf611839b85ade3dd3db309dbc8aaaaf0095",
+        "subsystem": "net/bluetooth",
+        "problem_description": "The 6lowpan netdev fails to be removed when the last l2cap channel is deleted because the channel connection pointer is no longer reset to NULL."
+    },
+    {
+        "Commit": "c65ab4905e5874a1a489c72da4d6e78a6c9b5943",
+        "Fixed-by": "09780b4b4bdcc7848249dfc8e44b4d55aa388024",
+        "subsystem": "arm64/dts",
+        "problem_description": "Incorrect MMIO ranges and IRQs for T8122 I2C controllers in the device tree prevent I2C-dependent hardware from functioning."
+    },
+    {
+        "Commit": "554ba38456dad8053a1a80afe6ae6da9eff745cc",
+        "Fixed-by": "8cae54c586084c81ab80f6ab020192eb2ce7aa0b",
+        "subsystem": "bpf",
+        "problem_description": "Changing the uprobe syscall error code from ENXIO to EPROTO breaks libbpf feature detection and selftests that still expect the old error code."
+    },
+    {
+        "Commit": "554ba38456dad8053a1a80afe6ae6da9eff745cc",
+        "Fixed-by": "ee2862439e5c8763cee84e910706fdc5b97bc879",
+        "subsystem": "bpf",
+        "problem_description": "The change from nop5 to nop10 for optimized uprobes breaks libbpf's USDT nop combo detection which hardcoded the 5-byte nop sequence."
+    },
+    {
+        "Commit": "ca524e273c43c990756cac471a4cb48d219480dd",
+        "Fixed-by": "78900738d981c97aad929e33620340d0d9bcfc82",
+        "subsystem": "drm/nova",
+        "problem_description": "Moving build rules for nova-core and nova-drm to the parent Makefile breaks rust-analyzer generation because the generator script requires the object files to be listed in the immediate Makefile."
+    },
+    {
+        "Commit": "428b9fd2dce50b4dc5cd9ade10b92efcf57ce7aa",
+        "Fixed-by": "a0738abd042f7406edd2175a819cf2e66388ed97",
+        "subsystem": "platform/x86",
+        "problem_description": "Passing potentially NULL values from dmi_get_system_info to dev_info causes confusing (null) strings to be printed in the kernel log."
+    },
+    {
+        "Commit": "ec98c3b501573fa6649b228b4881cde33f0ae6de",
+        "Fixed-by": "f107c62bfc057b82758c233391ee0842f02a0582",
+        "subsystem": "iio/adc",
+        "problem_description": "Missing select IIO_TRIGGERED_BUFFER in the Kconfig entry for AD4130 leads to potential build failures."
+    },
+    {
+        "Commit": "f0a66563aa2d0bb5673329ae6c4acb5d583cfdef",
+        "Fixed-by": "f647a2266289a35eaa4865f629f2ab7046900d9b",
+        "subsystem": "leds",
+        "problem_description": "Missing mutex_destroy on the probe error path causes a resource leak if lp5860_device_init fails."
+    },
+    {
+        "Commit": "d37ec2fbab55d732aae48ef2c877fb2d5ab08cd7",
+        "Fixed-by": "36e05e134ee44f9fbfcebcbcdadb5f765fccd9f0",
+        "subsystem": "watchdog",
+        "problem_description": "Missing NULL check for ACPI_HANDLE(dev) in ni903x_acpi_probe can lead to a crash or undefined behavior if the platform driver is bound to a device without an ACPI companion."
+    },
+    {
+        "Commit": "e23fafb8594ea886ee03e005cc32dfda24f417cf",
+        "Fixed-by": "61596826b89af9dc20a53bae79b2b41e2bdc1fb5",
+        "subsystem": "drm/xe",
+        "problem_description": "Build error with clang < 21 due to the use of ARRAY_SIZE() on const-qualified compound literals with non-compile-time-constant initializers in XE_RTP_TABLE macros."
+    },
+    {
+        "Commit": "ba0d3bf5f97b74ee1cf8ea6cc35efe5a052514a4",
+        "Fixed-by": "04998aa54848f15332202d0bea008d2ca1ed1713",
+        "subsystem": "sched",
+        "problem_description": "A delayed dequeue task with a shorter slice can incorrectly preempt the current task, violating EEVDF."
+    },
+    {
+        "Commit": "e3d8707358ea76b78bdec9928937bb9a797f2c8f",
+        "Fixed-by": "fd5295afae916fb300890875ca53c527537d0c06",
+        "subsystem": "selftests/mm",
+        "problem_description": "Compilation fails on older glibc versions due to an undeclared MADV_COLLAPSE identifier because linux/mman.h is not included."
+    },
+    {
+        "Commit": "22a0cc10dacbafe1c28b6f513cc449cdd86d1cb1",
+        "Fixed-by": "27a0f3635d862919dd7e5e93e19f3f5d1b240e57",
+        "subsystem": "bpf",
+        "problem_description": "Packet drop in the sockmap test because the skb is no longer linearized by the parser program, causing direct packet access to fail in the verdict program."
+    },
+    {
+        "Commit": "133c81f84471f47dadf03d0505d4c308b227a736",
+        "Fixed-by": "a044f99d000dca7e1d3e8fc847d9ad60467b6793",
+        "subsystem": "sound/soc/codecs",
+        "problem_description": "Incorrect bit shifts and masks for the CH1-CH4 temperature range registers lead to wrong temperature readings."
+    },
+    {
+        "Commit": "133c81f84471f47dadf03d0505d4c308b227a736",
+        "Fixed-by": "12272cb1b23e3032e5c627fb52f183a61913a88b",
+        "subsystem": "sound/soc/codecs",
+        "problem_description": "Missing READ_ONCE annotations on the concurrently accessed active_playback_dais and active_capture_dais bitmasks can lead to compiler-level data races."
+    },
+    {
+        "Commit": "9080b97689dbf8d2c338a9af97cd2b4a714f25bf",
+        "Fixed-by": "a954c9e3168cdf0c3cad07b43dfc8ca2945d773a",
+        "subsystem": "bpf",
+        "problem_description": "Compiler warnings occur during the bootstrap libbpf build because orphaned -Wformat-* flags remain in LIBBPF_BOOTSTRAP_CFLAGS after -Wformat is filtered out."
+    },
+    {
+        "Commit": "897ee11ec0209aa90184b5a69d0e172d007dce3a",
+        "Fixed-by": "8b7033c0c5dcc3b3bd8403453d2793ec4514ae62",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "GART window allocation fails on systems with a 64K page size because AMDGPU_GTT_MAX_TRANSFER_SIZE is defined in pages rather than bytes, leading to excessive memory requests that exceed the available GART aperture."
+    },
+    {
+        "Commit": "770031ec2312bfab307d05db5469f24fd297e758",
+        "Fixed-by": "d42df9dce7b374079c5c41691bd62d8765768a80",
+        "subsystem": "drm/xe",
+        "problem_description": "Calling xe_device_declare_wedged directly from the timeout handler tears down the submission state while the handler still owns the job, leading to a use-after-free and general protection fault when the handler subsequently accesses the stale job and scheduler."
+    },
+    {
+        "Commit": "47899d53f86f5ab8a65a8d7bfa53d4ba79fa9e82",
+        "Fixed-by": "ed0abc8be27e23aa65716bcaab8976ada2503cab",
+        "subsystem": "sound/soc/renesas",
+        "problem_description": "The rsnd_adg_clk_control function is not idempotent on the disable path, leading to an underflow of the main adg clock enable count if a system suspend follows a failed resume."
+    },
+    {
+        "Commit": "50227acbf4e5173db0f05ed95414512e7783889f",
+        "Fixed-by": "52543154836e79e0389489e8578db764bce8c6a8",
+        "subsystem": "remoteproc",
+        "problem_description": "Build failure on architectures without CONFIG_HAS_IOMEM due to missing ioremap_wc and iounmap declarations in the common remoteproc helpers."
+    },
+    {
+        "Commit": "a0e0c2f8c5f32b675f58e25a9338283cedb5ad2b",
+        "Fixed-by": "1ca22c6aa006b05143367268066fb74e32cfe66b",
+        "subsystem": "reset",
+        "problem_description": "Incorrect bit mask used for the USB2 AHB reset line in the SpacemiT K3 reset driver due to a swapped bit definition."
+    },
+    {
+        "Commit": "3bb44e8d421a1134bb8a9e13061dddd038c0d193",
+        "Fixed-by": "3e64a9e21093942d71a06d44ed93435601c6d4c0",
+        "subsystem": "drm/i915",
+        "problem_description": "Array-index-out-of-bounds in intel_cmtg_disable when called with a cpu_transcoder that does not map to a valid CMTG transcoder during big-joiner reconfiguration."
+    },
+    {
+        "Commit": "250eea5c06f5291603612cdf0c60326db4e19141",
+        "Fixed-by": "d4e0984f12ea958e0f2def90ddb1e193a896932b",
+        "subsystem": "pci/controller/dwc",
+        "problem_description": "Linker error due to undefined symbols for pci_host_common_parse_ports and pci_host_common_delete_ports when the i.MX6 PCIe endpoint driver is enabled without host mode."
+    },
+    {
+        "Commit": "e65f1bf8a2db8d68df88d304d1cd801b7c26031d",
+        "Fixed-by": "e242e974e812e7a47e3088860c80d9492fac314f",
+        "subsystem": "selftests/vfio",
+        "problem_description": "The uuid library dependency is linked via the VFIO selftests Makefile instead of libvfio.mk, preventing other selftests from automatically linking the required library when using VFIO functionality."
+    },
+    {
+        "Commit": "190c4546384461f3dee70a649b438aa41c24d01e",
+        "Fixed-by": "5786fa53dc7a4ae027ee2dbf321ed2286c4c20b5",
+        "subsystem": "tools/perf",
+        "problem_description": "The test_callchain_aslr subtest fails on s390 because perf record -g defaults to dwarf call graphs instead of frame pointers, causing perf inject --aslr to drop samples and produce an empty output file."
+    },
+    {
+        "Commit": "69efd863a78584b9416ed6be0e1e7349124b4a00",
+        "Fixed-by": "a369299c3f785cf556bbef2de2db0aa2d294c4c9",
+        "subsystem": "tracing",
+        "problem_description": "The trace probe parser incorrectly intercepts comm and COMM without a $ prefix during event field parsing, treating them as special fetchargs instead of normal event fields."
+    },
+    {
+        "Commit": "fa6067fd8ea7b5a287863d160841b76c7ace9019",
+        "Fixed-by": "6de3a7d7a4f653be4901d07425719c4e55805167",
+        "subsystem": "arm64/dts",
+        "problem_description": "The PCIe outbound memory ranges for the pcie1 controller on i.MX943 are incorrectly configured with a 256MB memory window size and an invalid IO space mapping."
+    },
+    {
+        "Commit": "8cd439f177589ca754ab27056905f57261048f9f",
+        "Fixed-by": "ffccbd6804e885f0fc23f0005f6bee7789a7a887",
+        "subsystem": "arm64/dts",
+        "problem_description": "The PCIe outbound memory ranges for the i.MX94 pcie0 controllers are incorrectly configured with a 256MB memory window and an invalid I/O space mapping."
+    },
+    {
+        "Commit": "4f2692a5383e4bdd43ae940cda012360f7217a2d",
+        "Fixed-by": "97f9e509d839f7e5b9a32105ae322e5223c86786",
+        "subsystem": "mtd/nand",
+        "problem_description": "Uninitialized variable warning for len in ndfc_probe when compile-testing without CONFIG_OF due to a missing Kconfig dependency."
+    },
+    {
+        "Commit": "83210251fd70d5f96bcdc8911e15f7411a6b2463",
+        "Fixed-by": "53716a4d745f1dac7aff33f3d1494b701eb2f888",
+        "subsystem": "firmware/arm_ffa",
+        "problem_description": "Rounding up the minimum RX/TX buffer size to PAGE_SIZE can exceed the maximum buffer size advertised by the firmware, causing the mapping request to be rejected."
+    },
+    {
+        "Commit": "2c85c61d1332e1e16f020d76951baf167dcb6f7a",
+        "Fixed-by": "af1a9b65ebe8a948eda805c14b78d4d0767cb1b5",
+        "subsystem": "hid",
+        "problem_description": "Out-of-bounds read in hid_get_report when a numbered report is processed with a size of 0 because the size validation occurs after the report ID is dereferenced."
+    },
+    {
+        "Commit": "0e66f10942b531a7521da97e4bdab0bdfcfc2e6f",
+        "Fixed-by": "2ef00630c5c0b7b2c08aba7643f47594952d357e",
+        "subsystem": "clk/qcom",
+        "problem_description": "Incorrect clock operations assigned to disp_cc_mdss_mdp_clk_src cause a clock reparenting stall and warning during probe on boards where the display is disabled."
+    },
+    {
+        "Commit": "0adb483fbf2dc43c875cd7550a58b41e92efc52d",
+        "Fixed-by": "2d6d33e45dd4fb768758d5f6e747deadcd66b9fc",
+        "subsystem": "input/rmi4",
+        "problem_description": "Strict bounds checking during register descriptor parsing causes device probe to fail with -EIO when firmware reports a structure size smaller than the number of registers in the presence map."
+    },
+    {
+        "Commit": "45079e00133ee78fd216ccc4285534044ea69173",
+        "Fixed-by": "1105ef941c1a28e115d1b97f17e1c85576884100",
+        "subsystem": "net/ethtool",
+        "problem_description": "Missing rtnl_lock during ethtool GET operations for drivers using ethtool_op_get_link, leading to an assertion failure in linkwatch synchronization."
+    },
+    {
+        "Commit": "30f0ba420ed3fb9a16d55523ae3c1b43a6f00e22",
+        "Fixed-by": "bf5cd5d4ca423d348e01b3bbcdccd0e02b1b408b",
+        "subsystem": "net/stmmac",
+        "problem_description": "Incorrect bit definitions for the wake and LPI IRQs in the Spacemit DWMAC driver."
+    },
+    {
+        "Commit": "30f0ba420ed3fb9a16d55523ae3c1b43a6f00e22",
+        "Fixed-by": "d1e3a4c3b24d4430d9987a3f349c6c2a959a389a",
+        "subsystem": "net/stmmac",
+        "problem_description": "Incorrect PHY interface register definitions and mask cause the wrong values to be written to the hardware for MII, RMII, and RGMII modes."
+    },
+    {
+        "Commit": "a9c2ca61fec7706574c009d8f1898ca392368f89",
+        "Fixed-by": "6117098309452c641af4458a0f7c02888b026fb6",
+        "subsystem": "net/airoha",
+        "problem_description": "BQL counter underflow occurs when a netdev sharing a QDMA TX ring is stopped and its BQL counters are reset while pending skbs remain in the hardware ring, causing NAPI completions to underflow the zeroed counters."
+    },
+    {
+        "Commit": "d7709812e13d06132ddae3d21540472ea5cb11c5",
+        "Fixed-by": "6bd81a5b4e0dbec2feb94a456bca9d9f00bc14b3",
+        "subsystem": "net/mana",
+        "problem_description": "The hardening check incorrectly rejects an adapter MTU of 0 reported by older PF firmware, causing the driver probe to fail and breaking networking."
+    },
+    {
+        "Commit": "5c6baef3885c0e16e63d432fe31aa6f7e98e18dc",
+        "Fixed-by": "e38fec239d923de5bfb65f7fce15ca52c5a3aa7f",
+        "subsystem": "selftests/net",
+        "problem_description": "The so_txtime test fails on some hardware because the 4ms variance bound is too strict and causes false positive test failures."
+    },
+    {
+        "Commit": "be23266b4a08540aa43d8503a2ea10247c8daebe",
+        "Fixed-by": "3a354149bceacadbcf7d7b4766f5ef26a85892ab",
+        "subsystem": "bpf",
+        "problem_description": "Half-slot cleanup of dead stack slots incorrectly clears spilled_ptr metadata for pointer spills, allowing subsequent 32-bit reads to bypass non-scalar register-fill checks."
+    },
+    {
+        "Commit": "8b8ee2e56f951ccf41d98eebe73195cea487cd48",
+        "Fixed-by": "265d5d4032c5f6eb089a6e6241d37fdbde7da180",
+        "subsystem": "soc/tegra",
+        "problem_description": "Spurious warning in tegra_read_straps because it checks the chipid variable which is now populated lazily and remains zero until explicitly read."
+    },
+    {
+        "Commit": "7b32f64bc512b40b268776c5ac4d354b325b3197",
+        "Fixed-by": "13a1e1a618858407fa12c391f664ea750651f6b2",
+        "subsystem": "mm",
+        "problem_description": "Limiting filemap_fault readahead to VMA boundaries causes a significant performance regression."
+    },
+    {
+        "Commit": "d647c5b2fbf81560818dacade360abc8c00a9665",
+        "Fixed-by": "ff6f26c58421614b02694ac9d219ac61d924bc68",
+        "subsystem": "ocfs2",
+        "problem_description": "A circular locking dependency in ocfs2_dio_end_io_write causes a deadlock because extent allocation contexts are not freed before acquiring the orphan directory lock."
+    },
+    {
+        "Commit": "85c9cc2d25f80534c1623621264018a655869cb2",
+        "Fixed-by": "799c8f0b9f3fd728b32594aed3852044703b7e5b",
+        "subsystem": "accel/ivpu",
+        "problem_description": "Using IRQF_ONESHOT in devm_request_threaded_irq forces the primary handler to run in hardirq context on PREEMPT_RT, leading to sleeping function called from invalid context errors when the handler acquires sleeping spinlocks and allocates memory."
+    },
+    {
+        "Commit": "759923cf03b062b5b8cdc770e2819a67ebe1cacd",
+        "Fixed-by": "d954a67a7dfa58b7a9b3194322d321b940eb60c8",
+        "subsystem": "net/ipv4",
+        "problem_description": "Use-after-free of net->ipv4.rules_ops because fib4_rules_exit() was moved to ->exit_rtnl(), allowing kernel sockets destroyed later in ->exit() to reach __fib_lookup()."
+    },
+    {
+        "Commit": "d4686f34bbebabeee3130678f01a17bd7cd58e64",
+        "Fixed-by": "5ce9ac1531b8e27e754a7d17fa07fa9da0d4a6b3",
+        "subsystem": "drm/i915",
+        "problem_description": "Missing call to intel_pfit_compute_config() in the DP MST compute config path leaves the sharpness filter non-operational on DP MST outputs."
+    },
+    {
+        "Commit": "bee25f97ad24641df55cb3887eb5bfcb2b9d8fbc",
+        "Fixed-by": "4e1187e12de40b5301977b2476d21b569358dafb",
+        "subsystem": "powerpc",
+        "problem_description": "Missing restoration of KUAP registers on the syscall restart exit path causes subsequent userspace accesses to fault and crash the kernel."
+    },
+    {
+        "Commit": "1d47b55b36d2ec73fe6901212c8b28a593c3b27c",
+        "Fixed-by": "2354e975932dabb06fad239f07a3b68fd1809737",
+        "subsystem": "netfilter",
+        "problem_description": "Imbalanced decrementation of the per-CPU recursion counter due to possible CPU migration because bottom halves are not disabled during packet transmission."
+    },
+    {
+        "Commit": "2b57c69917eeba3ee657f252257e37f31916ba2a",
+        "Fixed-by": "8f727615134abc6382f0ea07b90270d7bdde578f",
+        "subsystem": "x86/irq",
+        "problem_description": "A typo in the /proc/interrupts thermal event printout drops an 's', breaking userspace test suites that parse the output."
+    },
+    {
+        "Commit": "f9a3e05114b85d63452e7f9c172b53d6a1736fe0",
+        "Fixed-by": "f48cd5b47bfe9ad6c3fdf9a1d631e3fd7ca90db0",
+        "subsystem": "net/ethtool",
+        "problem_description": "Missing rtnl_lock during ethtool tsconfig operations causes ASSERT_RTNL warnings in drivers that expect the lock to be held when updating features."
+    },
+    {
+        "Commit": "0023a1e8d01a9d400257d30c851bd16a29568809",
+        "Fixed-by": "20003c1a1fd80ae1b1742ff54297b67f7f21b77f",
+        "subsystem": "rust/drm",
+        "problem_description": "The introduction of DeviceContext in DRM GEM objects broke the GPUVM module because it still assumed a strict identity between the GPUVM object type and a single driver object type, and GpuVm::new() was not updated to accept the new DeviceContext generic parameter."
+    },
+    {
+        "Commit": "b1107d085e7e8ed15ba6f80c102528a9c8a6cb0e",
+        "Fixed-by": "a889e9b06bfdb375fc88b3b2a4b143f621f930c6",
+        "subsystem": "drm/xe",
+        "problem_description": "Calling xe_device_declare_wedged directly from the timeout handler tears down submission while the handler still owns the job and scheduler, leading to a use-after-free and general protection fault."
+    },
+    {
+        "Commit": "87a3f5c8ac2096e9406ce2ed3bf5b9bc1589a92d",
+        "Fixed-by": "c429fbea6174a7dd40c4215288589a50e8a33ff6",
+        "subsystem": "sound/soc",
+        "problem_description": "Missing component name initialization for the cs42l43 part ID 0x2A3B entry in the codec info list prevents speaker component accumulation and causes audio profiles to fail."
+    },
+    {
+        "Commit": "5602ad61ebee99c83081fba1aaf5814736edc3e7",
+        "Fixed-by": "37314c9dbe95b4d924c7b61aaf563cec4f4e4133",
+        "subsystem": "net/core",
+        "problem_description": "Incorrect teardown ordering in netif_rxq_cleanup_unlease uninstalls the memory provider's DMA mappings before stopping the physical queue, allowing the device to DMA to stale or zero addresses."
+    },
+    {
+        "Commit": "fd55edff8a0abe1b198af9a4280bfb208b9d2ab7",
+        "Fixed-by": "f7606400f19ca0291718ce4eed5770798890ea2f",
+        "subsystem": "dma-buf",
+        "problem_description": "Building the system heap as a loadable module causes build failures on powerpc and s390 due to un-exported set_memory_encrypted and set_memory_decrypted functions."
+    },
+    {
+        "Commit": "89fa757931dc0bcd64ef22b28d1d5ad00c5d02f4",
+        "Fixed-by": "5670b7f927f8d98685f3f5873dbf9f8d7a5a63f3",
+        "subsystem": "kvm/s390",
+        "problem_description": "Race condition in try_get_locked_pte due to using standard page table offset functions instead of lockless variants, allowing page tables to be unmapped concurrently."
+    },
+    {
+        "Commit": "098cbaad8e573cf6cac9e68e7ca2e7b7363d2434",
+        "Fixed-by": "bb0c250e8e1132723795c1046442ceb01a5ed1b1",
+        "subsystem": "time",
+        "problem_description": "Splitting timer migration hierarchies per CPU capacity causes power consumption regressions on workloads with different CPU capacities."
+    },
+    {
+        "Commit": "97df8960240afc47c2349d008b0993e7727bbda5",
+        "Fixed-by": "470ea955a18c76eeb10ca11ffcb2fe923bfc5515",
+        "subsystem": "lib/fonts",
+        "problem_description": "Build failure in the ARM Risc PC bootloader decompressor because new inline functions added to linux/font.h require __do_div64, which is not linked into the decompressor."
+    },
+    {
+        "Commit": "afabbb56a7262979a75259e2710019aa8ced3e8a",
+        "Fixed-by": "4728f2509f2b66ea72b42cd537664444350ac56f",
+        "subsystem": "drivers/net/geneve",
+        "problem_description": "Build error in geneve_create_sock due to accessing the local_ip6 field of struct udp_port_cfg without a CONFIG_IPV6 guard."
+    },
+    {
+        "Commit": "bee25f97ad24641df55cb3887eb5bfcb2b9d8fbc",
+        "Fixed-by": "334f3f6d7a1660fd65597bad9960bfa33a716d35",
+        "subsystem": "powerpc",
+        "problem_description": "Interrupts are left enabled before calling irqentry_exit, which can lead to an invalid schedule call and trigger a kernel BUG in the scheduler."
+    },
+    {
+        "Commit": "5ff004fdc7377905f2fe5264b8829d35e14608b8",
+        "Fixed-by": "a57011eff45e7265dc42a7adad68b84605d8f828",
+        "subsystem": "drm/xe",
+        "problem_description": "Build error with clang < 21 due to the use of ARRAY_SIZE() on compound literals with non-compile-time-constant initializers in XE_RTP_TABLE macros."
+    },
+    {
+        "Commit": "4af4eb66aac382b08a8fcf822161f48cbed3aa08",
+        "Fixed-by": "be3ee6e6710ee766448b55a6041e73a393cfff79",
+        "subsystem": "pinctrl/aspeed",
+        "problem_description": "The GPIO request enable function unconditionally writes mux function 0, which incorrectly routes ADC-capable pins to ADC instead of GPIO."
+    },
+    {
+        "Commit": "0652a3daa78723f955b1ebeb621665ce72bec53e",
+        "Fixed-by": "979c294509f9248fe1e7c358d582fb37dd5ca12d",
+        "subsystem": "cfi",
+        "problem_description": "Build error due to implicit function declaration of get_kernel_nofault in cfi.h caused by a missing uaccess.h include."
+    },
+    {
+        "Commit": "308c7a0ae8859b34d9d90a3dff953b2d14242145",
+        "Fixed-by": "41025f441fe6addd93d2c333a3a184331e8ef6cf",
+        "subsystem": "bpf",
+        "problem_description": "The verifier's state equivalence check in refsafe() fails to compare the parent_id of PTR references, causing states with different parent objects to be incorrectly treated as equivalent and pruned."
+    },
+    {
+        "Commit": "308c7a0ae8859b34d9d90a3dff953b2d14242145",
+        "Fixed-by": "a3863aa4f55e5c17f32e1fd64a0a64adf2af16d9",
+        "subsystem": "bpf",
+        "problem_description": "Dead error check in check_kfunc_call because the signed return value of acquire_reference is incorrectly stored in an unsigned variable."
+    },
+    {
+        "Commit": "601885ffb5e9a0fd30c40a6c8cffeed2a04d695e",
+        "Fixed-by": "4acc0138c4f2fba453da5a5076ad2bba08a7463b",
+        "subsystem": "power/supply",
+        "problem_description": "Unused function warning for max17042_suspend_soc_alerts when CONFIG_PM_SLEEP is disabled, causing a build failure with -Werror."
+    },
+    {
+        "Commit": "e896e5c0734b559b5b58f356ebf100ccf5fcd16e",
+        "Fixed-by": "f3c496105472f353ff7428569ea4b6a6a61caf8e",
+        "subsystem": "net/core",
+        "problem_description": "Missing check for whether the network device is still alive after acquiring the RTNL lock in rtnl_getlink, potentially leading to illegal actions on a dismantled device."
+    },
+    {
+        "Commit": "a82adadb16894852fc8bc5a681f2070bea33b6b6",
+        "Fixed-by": "85339442de941e4d7ff5d53f51ae1413905e45ec",
+        "subsystem": "tools/verification",
+        "problem_description": "Incorrect use of rstrip instead of removesuffix in dot2k causes unintended characters to be stripped from environment variable names."
+    },
+    {
+        "Commit": "d3f7d17960ed50df3a6709c5158caff989c8c905",
+        "Fixed-by": "149324fc762c2a7acef9c26790566f81f475e51f",
+        "subsystem": "net/bluetooth",
+        "problem_description": "Strict length validation in add_ext_adv_data breaks backward compatibility with userspace bluetoothd by rejecting commands with extra bytes."
+    },
+    {
+        "Commit": "4a24127bd6cbf03fb17de8b43f2d8db3f55ca333",
+        "Fixed-by": "74e17bd6fc8ed7e30363bb78d4c50b38cfd71efe",
+        "subsystem": "rv",
+        "problem_description": "HA monitor timers can run asynchronously after cleanup because there is no synchronization to ensure running callbacks terminate before destruction."
+    },
+    {
+        "Commit": "f5587d1b6ec938afb2f74fe399a68020d66923e4",
+        "Fixed-by": "713c9e1ea7623846f8e0bb657f1b9d211d1a61e6",
+        "subsystem": "trace/rv",
+        "problem_description": "Hybrid Automata monitor initialization incorrectly relies on a potentially uninitialized monitoring flag, leading to unsafe attempts to cancel uninitialized timers."
+    },
+    {
+        "Commit": "4a24127bd6cbf03fb17de8b43f2d8db3f55ca333",
+        "Fixed-by": "32171d828ab964dc1f05f2056a81477522a3361b",
+        "subsystem": "rv",
+        "problem_description": "Missing synchronization for pending tracepoint probes during per-object monitor destruction leads to potential use-after-free of monitor storage."
+    },
+    {
+        "Commit": "f5587d1b6ec938afb2f74fe399a68020d66923e4",
+        "Fixed-by": "c3d016ea823a9941ab8cbcef01a500821ff0cf16",
+        "subsystem": "trace/rv",
+        "problem_description": "Race condition in Runtime Verification (RV) monitor destruction allows in-flight tracepoint handlers to access an invalid per-task monitor slot."
+    },
+    {
+        "Commit": "098cbaad8e573cf6cac9e68e7ca2e7b7363d2434",
+        "Fixed-by": "d4f198c13611257f7f29d3c614721d0ac5d362f5",
+        "subsystem": "time",
+        "problem_description": "Per-capacity timer migration hierarchies break the guarantee that the timekeeper CPU handles global timers for nohz_full CPUs if they belong to different capacity hierarchies."
+    },
+    {
+        "Commit": "098cbaad8e573cf6cac9e68e7ca2e7b7363d2434",
+        "Fixed-by": "e4a70f5fbd43f55b474028a2cee3d78e4b443dd7",
+        "subsystem": "timers",
+        "problem_description": "When a top-level migrator is deactivated, a new migrator is elected globally instead of within the same capacity hierarchy, potentially leaving a hierarchy without a migrator to handle global timers."
+    },
+    {
+        "Commit": "dbc8fd7a03cbc0704e8e558a448015f620547a02",
+        "Fixed-by": "90ae44d1e1bc67e8f6ceef56f184047c5fe775c7",
+        "subsystem": "accel/amdxdna",
+        "problem_description": "The user address is not preserved in amdxdna_hmm_register when PASID is disabled, causing heap buffer user address validation to fail."
+    },
+    {
+        "Commit": "b827ef02f409bd42c7e7fb82663b84753c0e5d14",
+        "Fixed-by": "d1adc098ce08893c92fce3db63f7bb750fbb4c30",
+        "subsystem": "s390/kvm",
+        "problem_description": "Missing return statement in _gmap_crstep_xchg_atomic after an unshadow event allows shadow crstes to be installed without the vsie_notif bit and can cause infinite loops."
+    },
+    {
+        "Commit": "458f2a712ab42b7d3615208862922dc35fe90ef9",
+        "Fixed-by": "b81e8b02e8f26b13ff4d6410f7a9854ba7021b86",
+        "subsystem": "drm/v3d",
+        "problem_description": "Missing cache clean before runtime suspend in v3d_power_suspend causes dirty lines to be lost and leads to system hangs when the power domain is shut down."
+    },
+    {
+        "Commit": "00d0b372374f2528394aabf7b1f53f8dafe294de",
+        "Fixed-by": "291dcd37c8c8f8f8e1bccc92228f44bf371762a8",
+        "subsystem": "liveupdate",
+        "problem_description": "Use-after-free in luo_file_unpreserve_files and luo_file_finish due to calling module_put before xa_erase, which dereferences the module's operations to get the file ID."
+    },
+    {
+        "Commit": "710abda58055ed5eaa8958107633cc12a365c328",
+        "Fixed-by": "a1b836607304f71051f9f9dcccf8b5097b86a1fb",
+        "subsystem": "gpio",
+        "problem_description": "A deadlock occurs during the removal of a shared GPIO proxy's parent because the mutex protecting the offset field is held for too long in gpio_device_teardown_shared."
+    },
+    {
+        "Commit": "83dca2530fb3ba63f47bad339d890bc30aa06ab5",
+        "Fixed-by": "17065203e1bc7e7f2786998d532cd93a06265156",
+        "subsystem": "sound/hda",
+        "problem_description": "The ALC269 audio quirk for the Lenovo Yoga Pro 7 15ASH11 uses an incorrect fixup that fails to control the mic mute LED."
+    },
+    {
+        "Commit": "917ace84b7702ab067572e3e9bff03a4e4dce7b9",
+        "Fixed-by": "80b0d3546ce18c5bbae7cebec014beb2fbe81580",
+        "subsystem": "iommu",
+        "problem_description": "Passing a non-literal string as a format argument to iommu_device_sysfs_add causes a -Wformat-security build error."
+    },
+    {
+        "Commit": "d07b26f39246a82399661936dd0c853983cfade7",
+        "Fixed-by": "0e60dafe97eca61721f3db456f97d97a80c6c8ae",
+        "subsystem": "smb/server",
+        "problem_description": "A transposed bounds check in smb_check_perm_dacl evaluates to dead code, failing to enforce the minimum ACE size and allowing an out-of-bounds read."
+    },
+    {
+        "Commit": "187fbae024c8439533d7f075f4ab4b594dc19992",
+        "Fixed-by": "10006ad04b74a81ba15f63e94f6310773b45b043",
+        "subsystem": "net/dsa",
+        "problem_description": "Missing Kconfig dependency on NET_VENDOR_FREESCALE for NET_DSA_NETC_SWITCH causes unmet dependencies and linker errors when the selected symbols are not enabled."
+    },
+    {
+        "Commit": "8c4ae218912554ef427440293cdb97319d17ca5d",
+        "Fixed-by": "e07761b9364f66736de06e159dd88173d175df92",
+        "subsystem": "drm/verisilicon",
+        "problem_description": "Build failure in the cursor plane code due to using the outdated struct drm_atomic_state parameter type instead of struct drm_atomic_commit for atomic modeset hooks."
+    },
+    {
+        "Commit": "9491c63b6cd7bdae97cd29c7c6bf400adbd3578f",
+        "Fixed-by": "bee399ea20c8fea361c0ada06afdec9fcbf6dfde",
+        "subsystem": "kvm/arm64",
+        "problem_description": "Arch timer interrupt state changes are not correctly propagated to the host irqchip driver for GICv3 guests running on a GICv5 host."
+    },
+    {
+        "Commit": "4f5b1f4e770b959dfef196f0e00297043b03cf72",
+        "Fixed-by": "2e4fe82344727b558ce870b7a023785b3f8edf33",
+        "subsystem": "pinctrl/qcom",
+        "problem_description": "The QUP1_SE4 lanes are incorrectly exposed as independent functions instead of being merged into groups, which mismatches how they are configured in pairs in the devicetree."
+    },
+    {
+        "Commit": "dc1ec4fa86b2b8bba2b6122f2b4420217b5bae9e",
+        "Fixed-by": "654ddf855bebd8d45a6e707f5dc2344921f5e0cf",
+        "subsystem": "platform/x86",
+        "problem_description": "Missing Kconfig dependency on LEDS_CLASS causes a link failure when the driver is built but LED classdev support is disabled."
+    },
+    {
+        "Commit": "ac23106a9b9a0f6ed90002ae3d6fe7c14e97e6bf",
+        "Fixed-by": "db0ec1ad723187a3428145b05d4a230d5b6f7e32",
+        "subsystem": "soc/qcom",
+        "problem_description": "Incorrect error checking for devm_memremap in qcom_llcc_get_fw_config because the function returns an error pointer instead of NULL on failure."
+    },
+    {
+        "Commit": "db359fccf212e7fa3136e6edbed6228475646fd7",
+        "Fixed-by": "54cf41c969da6637cce790b7400da1451609db9b",
+        "subsystem": "mm",
+        "problem_description": "Netpp pages might be mapped and use _mapcount, which conflicts with the newly introduced page_type since they share the same union in struct page."
+    },
+    {
+        "Commit": "af20af39fc09b5255a3adc2fba4b6d5fe6257c5a",
+        "Fixed-by": "90825ab392ac15a51f62e3f561ad77e0226a1cfc",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "Missing power domain and interface clock definitions in the ICE device tree node can cause unclocked register access issues during driver probe."
+    },
+    {
+        "Commit": "04bb37433330ef49e5939d78298ce8615744e076",
+        "Fixed-by": "b7c9047f851e80b580aba485b61785c7554b992c",
+        "subsystem": "arm64/dts",
+        "problem_description": "Missing power domain and interface clock specifications in the ICE device tree node can lead to unclocked register access issues during hardware probe."
+    },
+    {
+        "Commit": "2a5d4fc6f3f78554643e557adf95cdf1a75ae5b6",
+        "Fixed-by": "179d11c1c0cfaddcfc984edc3c1863ab600f679f",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "The device tree configuration incorrectly labels the debug UART as uart14 instead of uart13, resulting in an incorrect serial-engine index."
+    },
+    {
+        "Commit": "c3e2a8aef28c48a94c0cf0525ca96aa308bcf961",
+        "Fixed-by": "a4fa45c1d980bc2b9837f469119af24a9304a1fc",
+        "subsystem": "gpio",
+        "problem_description": "Missing device lock synchronization when calling device_is_bound in gpio_virtuser_device_activate."
+    },
+    {
+        "Commit": "1211907ac0b5f35e5720620c50b7ca3c72d81f7e",
+        "Fixed-by": "057caace5214da3b457bbd295e1a2ad34d3685ea",
+        "subsystem": "trace",
+        "problem_description": "The cmd_check_undefined Makefile recipe fails to create its target output file, causing the undefined symbol check to run unconditionally on every build."
+    },
+    {
+        "Commit": "58b4bd18390ec3118d8577e19bdee0d01d40c31e",
+        "Fixed-by": "057caace5214da3b457bbd295e1a2ad34d3685ea",
+        "subsystem": "trace",
+        "problem_description": "The cmd_check_undefined command in the trace Makefile fails to create an output file, causing the check to run unnecessarily on every build even when inputs have not changed."
+    },
+    {
+        "Commit": "3a96c7915d93231e128df74901fe8fcb960b0ecb",
+        "Fixed-by": "4840f8bb3e9aad183e707950f24f829fd220eb07",
+        "subsystem": "platform/x86",
+        "problem_description": "Missing NULL check for the ACPI companion device in the probe function leads to a potential NULL pointer dereference."
+    },
+    {
+        "Commit": "de6837243af00dc22b5117f45a35ec20adbf62c5",
+        "Fixed-by": "f15b0a3043f193677903be52d7dbef3d5c8df282",
+        "subsystem": "platform/x86",
+        "problem_description": "Missing NULL check for ACPI_COMPANION() in acpi_pcc_hotkey_probe can lead to a NULL pointer dereference."
+    },
+    {
+        "Commit": "6da22b031a3cf995d6488500a5edae07cae3df2d",
+        "Fixed-by": "e99829a15989d58ffe1ee3e283e0a5eb8e41ee8b",
+        "subsystem": "platform/x86",
+        "problem_description": "Missing NULL check for ACPI_COMPANION() in the probe functions can lead to a NULL pointer dereference if the platform driver is forced to match a device without an ACPI companion."
+    },
+    {
+        "Commit": "9a54c285630c0072daef5d526c3f0b697e901065",
+        "Fixed-by": "e62bb5abdcc0dc57ff09c4db961784582e61cd9b",
+        "subsystem": "media/platform/amd",
+        "problem_description": "Missing Kconfig dependency on DRM_AMDGPU for the AMD ISP4 capture driver causes a link error when DRM_AMDGPU is built as a module and the ISP driver is built-in."
+    },
+    {
+        "Commit": "2c8f4742bb76117d735f92a3932d85239b16c494",
+        "Fixed-by": "8cf8b5ae8e093132b0dce0a932af10c9ef077936",
+        "subsystem": "smb/client",
+        "problem_description": "Undefined variables old_size and zero_point in cifs_remap_file_range cause build failures with clang."
+    },
+    {
+        "Commit": "3ab5bd317ee280b198b00ea2114adaad7a458ef8",
+        "Fixed-by": "4286f5deee14b26a9f0447b566d4c7cb7e2e2702",
+        "subsystem": "bpf",
+        "problem_description": "Missing validation of outgoing stack arguments in btf_check_func_arg_match when btf_prepare_func_args fails, potentially leading to uninitialized stack reads or NULL pointer dereferences."
+    },
+    {
+        "Commit": "8ea6e25c8536031604d95dc29a90ef0f114012d7",
+        "Fixed-by": "7e68ba282165b8880d11eac8a816d54d449b7d80",
+        "subsystem": "sound/soc/qcom",
+        "problem_description": "Early buffer mapping of the full preallocated PCM buffer size can cause 32-bit address arithmetic overflow in the DSP firmware when the buffer is placed near the end of the addressable range."
+    },
+    {
+        "Commit": "1211907ac0b5f35e5720620c50b7ca3c72d81f7e",
+        "Fixed-by": "96350db80e0acd733e9b9ef61c0d910790b27289",
+        "subsystem": "trace",
+        "problem_description": "Missing architecture-specific and sanitizer symbols in the undefined symbols allowlist causes build failures on arm and s390 architectures."
+    },
+    {
+        "Commit": "67f4c61a73e9b17dc9593bf27badc6785ecadd78",
+        "Fixed-by": "dd074f04e04648d89d9d10ae9846cd057c97b385",
+        "subsystem": "sound/hda",
+        "problem_description": "The newly added PCI SSID quirk for Legion S7 15IMH05 shadows the codec SSID for Legion 7 16ITHG6, causing incorrect speaker amp binding and silent built-in speakers."
+    },
+    {
+        "Commit": "60a59eaca71b0a8db299830da72d4c3effa78e79",
+        "Fixed-by": "c9017d335aab23c4514daed79c939af52a9aa7f6",
+        "subsystem": "sched_ext",
+        "problem_description": "Incorrect use of the __arena annotation instead of __arena_global for the qa global variable causes it to be placed in BSS instead of the arena, leading to a build error when accessing skel->arena->qa."
+    },
+    {
+        "Commit": "5c6baef3885c0e16e63d432fe31aa6f7e98e18dc",
+        "Fixed-by": "543bdc1578cd380631558a884318551a0e9fdab2",
+        "subsystem": "selftests/net",
+        "problem_description": "The so_txtime selftest lacks handling for slow environments and uses tight timeouts, causing test flakiness and false failures on debug builds."
+    },
+    {
+        "Commit": "411d3ef1a70589755e3beed2f5bf1f8aa0c27d1a",
+        "Fixed-by": "cceb874eee46fe4b3d3c6c496f19125d9a3a9a8f",
+        "subsystem": "sched/ext",
+        "problem_description": "Use-after-free of sub_kset during concurrent scheduler disable and enable operations due to premature kset_unregister."
+    },
+    {
+        "Commit": "4eee57dd4df9f388cb2d7369205e1d51b83c341b",
+        "Fixed-by": "12c97d1c15f926cd430bf5cdf8ffe878cb478165",
+        "subsystem": "arm64/dts/qcom",
+        "problem_description": "The QMP PHY nodes incorrectly include an extra RPMh CXO clock and a clkref clock name, violating the devicetree schema and redundantly specifying a clock already provided by the TCSR clock controller."
+    },
+    {
+        "Commit": "fd7400cfcbaaa1f3d1b904711d9daf029e996364",
+        "Fixed-by": "512718bbc51b851140380b7068ec7365bd039cba",
+        "subsystem": "genirq",
+        "problem_description": "Calling add_interrupt_randomness() in handle_percpu_devid_irq() causes a potential deadlock when the function is used to handle an NMI."
+    },
+    {
+        "Commit": "bf0c571f7feb6fa05a512e2a5e50702501849d61",
+        "Fixed-by": "512809bb8a370d071f66fc53abe67368e171dec5",
+        "subsystem": "bpf",
+        "problem_description": "The arg-tracking dataflow analysis is erroneously executed twice on the main subprogram, leading to unnecessary verification overhead and excessively verbose verifier logs."
+    },
+    {
+        "Commit": "b61dbdeff3a9d28407b4f90f57ec5d23eec96b2d",
+        "Fixed-by": "1160428a8b6431c8976d26cd728e61b31424b3ee",
+        "subsystem": "net/ixgbe",
+        "problem_description": "The driver incorrectly populates the link partner's advertised EEE capabilities using the local PHY capabilities instead of the actual link partner data."
+    },
+    {
+        "Commit": "10a4206a24013be4d558d476010cbf2eb4c9fa64",
+        "Fixed-by": "f45a49a2380a47332817b7248c61a0ebbc6f0d00",
+        "subsystem": "pci",
+        "problem_description": "Uninitialized lock in new_id_store causes a lockdep splat because a temporary pci_dev is not properly initialized with device_initialize before being passed to pci_match_device."
+    },
+    {
+        "Commit": "7e655ed7b953d194265837978ca21bb17985d4aa",
+        "Fixed-by": "ca1d48a86fab82da94cf0ddf586b484dcd04df6e",
+        "subsystem": "sched",
+        "problem_description": "Build failure on 32-bit PPC architectures due to a BUILD_BUG_ON assertion tripping because sizeof includes trailing struct padding."
+    },
+    {
+        "Commit": "917b61fa2042f11e2af4c428e43f08199586633a",
+        "Fixed-by": "dcb0f9aefdd604d36710fda53c25bd7cf4a3e37a",
+        "subsystem": "net/netfilter",
+        "problem_description": "Helper propagation via expectation is broken for userspace conntrack helpers because explicit helper assignment on new expectations is ignored."
+    },
+    {
+        "Commit": "7ae37b2c94ed30bfefece2b68c727a4474206718",
+        "Fixed-by": "4822703b150fc25f7bdb8cf266a482619881a97e",
+        "subsystem": "btrfs",
+        "problem_description": "The __GFP_NOWARN flag added to constraint_gfp is stripped by mapping_gfp_constraint(), causing unintended order-0 allocation failure warnings to be printed during compressed readahead."
+    },
+    {
+        "Commit": "37ad039fb3674a36dbf082fa5c864af1b791eccd",
+        "Fixed-by": "9175f49330d199c03eb970f799526c9d479b5f1a",
+        "subsystem": "drm",
+        "problem_description": "Build failure on architectures lacking transparent hugepage support due to an undeclared dependency on HPAGE_PMD_SIZE in dma_iova_try_alloc calls."
+    },
+    {
+        "Commit": "b3b6babf47517fde6b6de2493dea28e8831b9347",
+        "Fixed-by": "019c892e46544af0ae94ec833f79aa903c837666",
+        "subsystem": "net/ipv4",
+        "problem_description": "Missing RCU read lock around ipmr_fib_lookup in reg_vif_xmit causes a suspicious RCU usage warning."
+    },
+    {
+        "Commit": "ac8e69e693631689d74d8f1ebee6f84f737f797f",
+        "Fixed-by": "9f6d929ee2c6f0266edb564bcd2bd47fd6e884a8",
+        "subsystem": "sched",
+        "problem_description": "Missing check for an empty cfs_rq in wakeup_preempt_fair() before calling pick_next_entity() after a delayed task is dequeued."
+    },
+    {
+        "Commit": "309b905deee595619cc38719f48d63d57b8bff3d",
+        "Fixed-by": "901a7d9e2f280a9e76e6c58406a519cb11ad5ff8",
+        "subsystem": "net/ipv6",
+        "problem_description": "The IPV6_SIT Kconfig option incorrectly defaults to built-in instead of a module, causing an unexpected sit0 device to be created by default."
+    },
+    {
+        "Commit": "07853e95424869059d7ce1cd25c800f88ee03e95",
+        "Fixed-by": "71fa1bccaa957b0f51c1e1bedff2541741ec2b0c",
+        "subsystem": "drm/panel",
+        "problem_description": "Incorrect error check for devm_drm_panel_alloc() which returns an error pointer instead of NULL, leading to potential invalid pointer dereferences on allocation failure."
+    },
+    {
+        "Commit": "a7c61963b7278cbe2c27e35ce93f3787a0d5b5bf",
+        "Fixed-by": "50987d4e6c55929aa2d4d3976e74ccbae22d5017",
+        "subsystem": "drm/panel",
+        "problem_description": "Incorrect error check for devm_drm_panel_alloc using a NULL check instead of IS_ERR, which skips the error path on failure and can lead to a pointer dereference."
+    },
+    {
+        "Commit": "b3b6babf47517fde6b6de2493dea28e8831b9347",
+        "Fixed-by": "a6039776c7994dd0b9a4acce23a3f897d1688cbf",
+        "subsystem": "net/ipv4",
+        "problem_description": "Missing __rcu annotation on the mrt pointer in struct netns_ipv4 causes a Sparse type incompatibility error during static analysis."
+    },
+    {
+        "Commit": "efcd8b9d111177d48c841d09beca43b15d5b9e5f",
+        "Fixed-by": "00cef7eb08c8b9af0978f667c77c6a30b71b7e22",
+        "subsystem": "spi",
+        "problem_description": "Integer overflow in k1_spi_set_speed on 32-bit architectures due to missing u64 cast when multiplying NSEC_PER_SEC."
+    },
+    {
+        "Commit": "0d8647bc74cb50edf02e8c88977657596f20fb17",
+        "Fixed-by": "18ed60e33e6c77d62409c1343dec1c61bae3d2e7",
+        "subsystem": "net/mctp",
+        "problem_description": "Uninitialized padding in sockaddr_mctp causes bind to fail in the route input null EID test."
+    },
+    {
+        "Commit": "4ca07b9239bd0478ae586632a2ed72be37ed8407",
+        "Fixed-by": "1e01abec856593e02cd69fd95b784c10dd46880c",
+        "subsystem": "net/sched",
+        "problem_description": "Unintended and unrelated changes were accidentally included in cls_flower.c during a commit targeting the mctp i2c driver."
+    },
+    {
+        "Commit": "0de4cb473aed57ee4ba7e0551ad27bddc19fc519",
+        "Fixed-by": "20e81c64c905bd765e69ef07920d2b1130dc79b6",
+        "subsystem": "workqueue",
+        "problem_description": "Missing __printf annotation on alloc_workqueue_va prevents format string checking from propagating through the forwarding."
+    },
+    {
+        "Commit": "34fe4a9df2476f52a809d0cd9659ff73de605774",
+        "Fixed-by": "2d80392a97cf205a766d75539b4c814a4f5e7490",
+        "subsystem": "sound/usb",
+        "problem_description": "The quirk entry for the PreSonus AudioBox USB is mistakenly placed inside a disabled preprocessor block, rendering it inactive."
+    },
+    {
+        "Commit": "86426a28c52d756a5edbe29885716128b8915991",
+        "Fixed-by": "9f5b3ffc3f1dac7204e32eeeff84bc5cc55c393e",
+        "subsystem": "bpf",
+        "problem_description": "The use of 'free' as a function name in libarena conflicts with an enum token on the s390 architecture, leading to build failures."
+    },
+    {
+        "Commit": "059258b0d424510202b6f2796279dbdbf0c6a83d",
+        "Fixed-by": "c5cd6fd75b6a55761337c9e965dd5ad02485d00d",
+        "subsystem": "sched",
+        "problem_description": "Incorrect return value in update_entity_lag compares against the old vlag instead of checking if the effective vruntime is affected, potentially failing to reposition the entity."
+    },
+    {
+        "Commit": "28abd224db4a49560b452115bca3672a20e45b2f",
+        "Fixed-by": "b32ae47a2b0a1fb4bd4942242847966d9b178222",
+        "subsystem": "sound/usb",
+        "problem_description": "Probing fails for devices without a dedicated input device because snd_usb_caiaq_input_init returns -EINVAL which is incorrectly treated as a fatal error."
+    },
+    {
+        "Commit": "8ad2c6a36ac4328072377906a47ea0bff11e4032",
+        "Fixed-by": "3f95e2661574ff13f099dd13456751933c280628",
+        "subsystem": "hfsplus",
+        "problem_description": "Missing minimum bounds check for B-tree node size allows a corrupted size of 1 to bypass the power-of-two check and cause an uninitialized value bug during mount."
+    },
+    {
+        "Commit": "bbc631085503a7fde9617be18b0657cc9a83910a",
+        "Fixed-by": "79b8ebcbe483fee401e1b91dd32470348d9aa5b8",
+        "subsystem": "bpf",
+        "problem_description": "Missing EXPORT_SYMBOL_GPL for the cnum_umin and cnum_umax helpers causes a modpost build error when drivers using them are built as modules."
+    },
+    {
+        "Commit": "bbc631085503a7fde9617be18b0657cc9a83910a",
+        "Fixed-by": "cd5b460ed1eca9e48f3eb07db1ee0a522c0eaa23",
+        "subsystem": "bpf",
+        "problem_description": "Incorrect state equivalence checking in range_within() due to using min/max accessors instead of proper circular number subset operations, which fails for ranges crossing wrapping boundaries."
+    },
+    {
+        "Commit": "f76aef980206e7c6bc09933fd3c8e2b8a3479bd2",
+        "Fixed-by": "1e9e7fd839b7f22b46762059c6f3e576b3e6e179",
+        "subsystem": "net/mdio",
+        "problem_description": "Missing Kconfig dependency on ARCH_MICROCHIP for the PIC64-HPSC/HX MDIO driver allows it to be prompted and configured on unsupported architectures."
+    },
+    {
+        "Commit": "25854131c04a5aa25a41cf527aab269aadb86699",
+        "Fixed-by": "2d1e82f1224f3109481bb0ed3683e54b09b978e3",
+        "subsystem": "accel/amdxdna",
+        "problem_description": "Incorrect layout of the fatal_error_info structure due to an oversized reserved array causes a mismatch with the firmware interface."
+    },
+    {
+        "Commit": "65d657d806848add1e1f0632562d7f47d5d5c188",
+        "Fixed-by": "e254ffb9502c8b4c7f8712c34ae6590796825260",
+        "subsystem": "selftests/net",
+        "problem_description": "The nk_qlease.py selftest incorrectly calls ksft_run() multiple times within a single file, which is explicitly forbidden by the kselftest framework."
+    },
+    {
+        "Commit": "5920d046f7ae3bf9cf51b9d915c1fff13d299d84",
+        "Fixed-by": "76af54648899abbd6b449c035583e47fd407078a",
+        "subsystem": "workqueue",
+        "problem_description": "A false positive -Warray-bounds compiler warning occurs on uniprocessor configurations in llc_populate_cpu_shard_id because the compiler cannot statically prove that cpumask_first returns 0."
+    },
+    {
+        "Commit": "28b7c5a6db74e9305c6cbcbe52f259ff1cf85158",
+        "Fixed-by": "81f971c6abec59240e2bcfc38756bda8172fa788",
+        "subsystem": "bluetooth",
+        "problem_description": "The btmtk_mt6639_devs array is defined outside the CONFIG_BT_HCIBTUSB_MTK block, causing an unused-const-variable build error when USB support is disabled."
+    },
+    {
+        "Commit": "d04686d9bc86432ea3008d5f358373d8466d1943",
+        "Fixed-by": "0aa72fc37e15974827ceb72c5cf8e57085a29301",
+        "subsystem": "net/core",
+        "problem_description": "Reference tracker mismanagement in netdev_put_lock causes a double-release warning because it frees the tracker and then calls dev_put instead of netdev_put."
+    },
+    {
+        "Commit": "340bdf984613c4a9241d678915e513824f5a9b19",
+        "Fixed-by": "71934b9e6f36b1786bd969c0e1d2de8f9bd65f0f",
+        "subsystem": "net/dsa",
+        "problem_description": "The mxl862xx_set_bridge_port function incorrectly returns early if the setup_done flag is not set, preventing the early configuration of single-port bridges for user ports."
+    },
+    {
+        "Commit": "24b2e73f9700e0682575feb34556b756e59d4548",
+        "Fixed-by": "c6890f36fc49848c61d2113a3442eb1b59e0bc4b",
+        "subsystem": "workqueue",
+        "problem_description": "An unguarded 64-bit division in the benchmark results print statement causes a build failure on 32-bit architectures due to an undefined reference to __udivdi3."
+    },
+    {
+        "Commit": "a17871778ee28e4df054521e966e9f37c61f541b",
+        "Fixed-by": "cee10a01e286e88e0949979e91231270ca9fdb8e",
+        "subsystem": "net/macb",
+        "problem_description": "Build failure occurs when CONFIG_OF is disabled because at91_default_usrio is used before it is declared."
+    },
+    {
+        "Commit": "a258a383b91774ac646517ec1003a442964d8946",
+        "Fixed-by": "f4626281c6bb563ef5ad9d3a59a1449b45a3dc30",
+        "subsystem": "kvm/arm64",
+        "problem_description": "KVM incorrectly advertises GICv3 in the ID_PFR1_EL1 register even when AArch32 is not supported at EL0."
+    },
+    {
+        "Commit": "bade44fe546212e142befb69ba22f34944030a99",
+        "Fixed-by": "8053f49fed581c40fcc87fa54904f4fa473f46b7",
+        "subsystem": "tracing",
+        "problem_description": "Build error when CONFIG_TRACER_SNAPSHOT is defined but CONFIG_FSNOTIFY is not due to a duplicate latency_fsnotify stub in trace_snapshot.c and incorrect ifdef placement in trace.h."
+    },
+    {
+        "Commit": "710abda58055ed5eaa8958107633cc12a365c328",
+        "Fixed-by": "310a4a9cbb17037668ea440f6a3964d00705b400",
+        "subsystem": "gpio",
+        "problem_description": "Holding the entry lock while creating auxiliary shared proxy devices causes a deadlock."
+    },
+    {
+        "Commit": "bade44fe546212e142befb69ba22f34944030a99",
+        "Fixed-by": "724d197aaea19e4f2012fca5b0e30ae690458de3",
+        "subsystem": "tracing",
+        "problem_description": "A missing prototype for the global stub function tracing_alloc_snapshot causes build failures when the snapshot feature is not configured."
+    },
+    {
+        "Commit": "7d9351435ebba08bbb60f42793175c9dc714d2fb",
+        "Fixed-by": "57a04a13aac1f247d171c3f3aef93efc69e6979e",
+        "subsystem": "net",
+        "problem_description": "Build error in netdevsim when SKB_EXTENSIONS is disabled due to a missing stub for __skb_ext_put."
+    },
+    {
+        "Commit": "3007c1530f96f2a2ecf8ca545d1feddc40c8451b",
+        "Fixed-by": "c1774272c76e92fc3df10a8fedfc033716e55d1b",
+        "subsystem": "iio/imu",
+        "problem_description": "The runtime suspend callback unconditionally returns success even if turning off the sensors fails, causing the PM core to incorrectly mark the device as suspended while sensors remain powered on."
+    },
+    {
+        "Commit": "544d85de4dc22c01badfd8cefa59829ce35c4858",
+        "Fixed-by": "6a5719cc3ef2e4d9857cc4ae18e6db09d59a8cc9",
+        "subsystem": "net/qrtr",
+        "problem_description": "The QRTR HELLO message is only sent at device registration, causing firmware to indefinitely wait for a HELLO message and fail to resume during a suspend-resume cycle."
+    },
+    {
+        "Commit": "41cd3d91ca8595f48cae5169ff8e4089c88670f2",
+        "Fixed-by": "7ba5290db6bf365e46fb70bf13dc2a47048165ea",
+        "subsystem": "arm64/dts",
+        "problem_description": "The USDHC2 node is missing the vqmmc-supply property referencing LDO5, causing the regulator to be disabled during late init and resulting in SD card I/O errors."
+    },
+    {
+        "Commit": "2f8784cfe8a961e5f0d85210c5175ebf5d438d93",
+        "Fixed-by": "3621f78d43b0a9563d5ade68370434c532eea259",
+        "subsystem": "bluetooth",
+        "problem_description": "The Min_CE_Length and Max_CE_Length parameters are incorrectly set to 0x0000 instead of a valid minimum value of 0x0001 in LE connection rate requests, violating the Bluetooth specification."
+    },
+    {
+        "Commit": "b0258f69f1e0ed98e8506706da9ef538389b27ea",
+        "Fixed-by": "0f70fd6f4c1d6c1f2ea298d8dd07c4a4d5dff9af",
+        "subsystem": "riscv",
+        "problem_description": "Leftover interrupts properties in the gpio nodes of the mpfs-beaglev-fire device tree cause driver probe failures due to invalid interrupt lookups."
+    },
+    {
+        "Commit": "e48e332d84d8df9bc615530beaa3ece9240da2d6",
+        "Fixed-by": "3b8f8d632381fdeb4c4f54fd516d49d4f513b9aa",
+        "subsystem": "bluetooth",
+        "problem_description": "Infinite probe deferral loop occurs because of_graph_is_present() does not check the status property of the remote M.2 connector node when it is disabled."
+    },
+    {
+        "Commit": "7a06d3b816d73448b4e38b83d65049f090b7b201",
+        "Fixed-by": "fa724e235cfdb0fb0bb427d0f9dfe864ae27403e",
+        "subsystem": "smb/client",
+        "problem_description": "Missing fscache_resize_cookie call after updating the inode size leaves the fscache cookie out of sync with the actual file size."
+    },
+    {
+        "Commit": "99cd0a6eeb6c20fc6b914e7ce192c6b08e1ef906",
+        "Fixed-by": "5906d0e82e8e07d756f3ed1abfac8f8cea2c20dc",
+        "subsystem": "smb/client",
+        "problem_description": "The SMB client fails to refresh the target file's AllocationSize and i_blocks after a duplicate extents request, causing callers to observe incorrect st_blocks values for sparse reflinked files."
+    },
+    {
+        "Commit": "104a391bb6ff4cbb2bc0fafd34bc1bc06150f355",
+        "Fixed-by": "3385e2f77182469940c136b9eeedf01f27b7441f",
+        "subsystem": "arm64/dts",
+        "problem_description": "Missing alias for lpuart5 in the device tree causes the fsl-lpuart driver to fail probing, preventing the Bluetooth controller from working."
+    },
+    {
+        "Commit": "4d587cd8a72155089a627130bbd4716ec0856e21",
+        "Fixed-by": "2f6701a5ce6257ae7a64ddc6d89d0a08d2a034f8",
+        "subsystem": "apparmor",
+        "problem_description": "Missing AppArmor feature set artifact in securityfs to advertise the TCP fast open fix availability to userspace and test suites."
+    },
+    {
+        "Commit": "8318af5dd29c819d95ec5b878e7dab6090a9ed2b",
+        "Fixed-by": "813e034925814858cc52e7de321ec4848314e15d",
+        "subsystem": "soc/tegra",
+        "problem_description": "A link error occurs on ARM when the PMC driver is disabled because the dummy implementation of tegra_pmc_core_domain_state_synced is not provided."
+    },
+    {
+        "Commit": "54ac9ff8f1196afc49d644a1625e0af1c9fcf7f5",
+        "Fixed-by": "998d4d789d2d625e1d8c77c1b6c3951e30e81bb0",
+        "subsystem": "arm64",
+        "problem_description": "Missing include of asm/insn.h in arch/arm64/kernel/static_call.c causes an implicit function declaration build error for aarch64_insn_adrp_get_offset."
+    },
+    {
+        "Commit": "f33a1f9a942cba6c7454c5c2290395961a986f6f",
+        "Fixed-by": "9f004f2afded2870838c0ae4906c2fa9307286bb",
+        "subsystem": "arm64/dts",
+        "problem_description": "The RS485 RTS polarity is incorrectly configured as active low instead of active high in the device tree for the imx95-verdin-ivy board, breaking RS485 functionality."
+    },
+    {
+        "Commit": "634a4408c0615c523cf7531790f4f14a422b9206",
+        "Fixed-by": "e3ac0d9f1a205f33a43fba3b79ef74d2f604c78b",
+        "subsystem": "bluetooth",
+        "problem_description": "Strict length validation for WMT FUNC_CTRL events incorrectly rejects short packets from certain MediaTek devices, rendering them unusable."
+    },
+    {
+        "Commit": "90c5def10bea574b101b7a520c015ca81742183f",
+        "Fixed-by": "7e0548525abd2bff9694e016b6a469ccd2d5a053",
+        "subsystem": "iommu",
+        "problem_description": "Missing .iotlb_sync calls for drivers that do not use the iotlb_gather mechanism because the core code incorrectly assumes empty gathers mean nothing to sync."
+    }
+]
