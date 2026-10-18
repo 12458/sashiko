@@ -64,9 +64,10 @@ impl EmailRouter {
         }
     }
 
+    /// Compares addresses only: a display name is the sender's to choose, so
+    /// one naming a list must not select that list's delivery policy.
     fn address_matches_list(incoming: &str, list_bare: &str) -> bool {
-        let incoming_bare = extract_bare_email(incoming);
-        incoming_bare == list_bare || incoming.to_ascii_lowercase().contains(list_bare)
+        extract_bare_email(incoming) == list_bare
     }
 
     fn is_mailing_list_address(addr: &str, configured_lists: &HashSet<String>) -> bool {
@@ -752,6 +753,44 @@ mod tests {
             }
             Action::Mute => panic!("Should not mute"),
         }
+    }
+
+    #[test]
+    fn test_display_name_does_not_select_list_policy() {
+        let mut lists = HashMap::new();
+        lists.insert(
+            "quiet@vger.kernel.org".to_string(),
+            MailingListPolicy {
+                reply_to: Some(vec![ReplyTarget::List]),
+                ..Default::default()
+            },
+        );
+        lists.insert(
+            "linux-kbuild@vger.kernel.org".to_string(),
+            MailingListPolicy {
+                reply_to: Some(vec![ReplyTarget::Author, ReplyTarget::Recipients]),
+                ..Default::default()
+            },
+        );
+        let policy = EmailPolicyConfig {
+            defaults: DefaultListPolicy::default(),
+            lists,
+        };
+        let action = EmailRouter::resolve_recipients(
+            &policy,
+            &["quiet@vger.kernel.org".to_string()],
+            &["\"linux-kbuild@vger.kernel.org\" <victim@example.com>".to_string()],
+            "victim@example.com",
+            "bot@sashiko.dev",
+        );
+        assert_eq!(
+            action,
+            Action::Send {
+                to: vec!["quiet@vger.kernel.org".to_string()],
+                cc: vec![],
+                positive_review: PositiveReviewPolicy::None,
+            }
+        );
     }
 
     #[test]
