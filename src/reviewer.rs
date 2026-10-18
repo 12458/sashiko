@@ -3011,7 +3011,7 @@ impl Reviewer {
                     || patch_author.to_ascii_lowercase().contains(&sashiko_bare)))
         {
             info!(
-                "Bot loop guard muted notifications for patch {}/{} (ID: {}) from {}",
+                "Bot loop guard muted notifications for patch {}/{} (ID: {}) from {:?}",
                 patchset_id, index, patch_id, patch_author
             );
             ctx.db
