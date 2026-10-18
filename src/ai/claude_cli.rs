@@ -17,11 +17,11 @@
 //!
 //! ## Safety
 //!
-//! The `claude --print` flag runs in text-completion mode: no tools, no file
-//! access, no session persistence, no network calls. The CLI reads a prompt
-//! from stdin and writes a response to stdout — it cannot modify the
-//! filesystem or execute commands. This makes it inherently safe for use as
-//! a completion backend without any additional sandboxing.
+//! The prompt carries patch text from anyone who can post to a reviewed list,
+//! so the CLI must not act on it. `--print` alone keeps Claude Code's built-in
+//! tools (Bash, file read and edit); `build_claude_args` removes them with
+//! `--tools ""` and removes MCP tools with `--disallowedTools "mcp__*"` and
+//! `--strict-mcp-config`, leaving a text-completion backend.
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -112,6 +112,33 @@ pub struct ClaudeCliProvider {
     pub effort: Option<String>,
 }
 
+/// Returns the argv passed to `claude` (the prompt goes on stdin). Extracted
+/// so tests can assert that no tool survives.
+pub fn build_claude_args(model: &str, effort: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "--print".to_string(),
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--no-session-persistence".to_string(),
+        "--settings".to_string(),
+        r#"{"verbose":false}"#.to_string(),
+        "--tools".to_string(),
+        String::new(),
+        "--disallowedTools".to_string(),
+        "mcp__*".to_string(),
+        "--strict-mcp-config".to_string(),
+        "--model".to_string(),
+        model.to_string(),
+    ];
+
+    if let Some(effort) = effort {
+        args.push("--effort".to_string());
+        args.push(effort.to_string());
+    }
+
+    args
+}
+
 #[async_trait]
 impl AiProvider for ClaudeCliProvider {
     async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
@@ -119,25 +146,8 @@ impl AiProvider for ClaudeCliProvider {
 
         debug!("claude-cli prompt length: {} chars", prompt.len());
 
-        let mut args = vec![
-            "--print".to_string(),
-            "--output-format".to_string(),
-            "json".to_string(),
-            "--no-session-persistence".to_string(),
-            "--settings".to_string(),
-            r#"{"verbose":false}"#.to_string(),
-        ];
-
-        args.push("--model".to_string());
-        args.push(self.model.clone());
-
-        if let Some(effort) = &self.effort {
-            args.push("--effort".to_string());
-            args.push(effort.clone());
-        }
-
         let mut child = Command::new("claude")
-            .args(&args)
+            .args(build_claude_args(&self.model, self.effort.as_deref()))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -552,6 +562,17 @@ mod tests {
 
         let prompt = build_prompt(&req);
         assert!(!prompt.contains("RESPONSE FORMAT"));
+    }
+
+    #[test]
+    fn test_claude_args_disable_every_tool() {
+        let args = build_claude_args("sonnet", Some("high"));
+        let tools = args.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(args[tools + 1], "");
+        let denied = args.iter().position(|a| a == "--disallowedTools").unwrap();
+        assert_eq!(args[denied + 1], "mcp__*");
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+        assert!(args.contains(&"--print".to_string()));
     }
 
     #[test]
