@@ -23,8 +23,10 @@
 
 use anyhow::{Context, Result};
 use std::process::{ExitStatus, Stdio};
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
+use tokio::time::timeout;
 
 /// Bytes of stdout kept from a git subprocess.
 ///
@@ -55,13 +57,26 @@ impl CappedOutput {
     }
 }
 
+/// How long one tool command may run. The model chooses the arguments, and a
+/// grep pattern is PCRE, so without a bound one call can backtrack until the
+/// whole review times out.
+pub const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Runs a command and captures its output, giving up on stdout beyond
-/// [`MAX_CAPTURED_STDOUT`] bytes.
+/// [`MAX_CAPTURED_STDOUT`] bytes and killing the command after
+/// [`TOOL_COMMAND_TIMEOUT`].
 ///
 /// A capped capture is cut back to the last complete line so callers never
 /// have to reason about a partial one.
 pub async fn capped_output(cmd: &mut Command) -> Result<CappedOutput> {
-    capped_output_with_limit(cmd, MAX_CAPTURED_STDOUT).await
+    capped_output_within(cmd, TOOL_COMMAND_TIMEOUT).await
+}
+
+async fn capped_output_within(cmd: &mut Command, limit: Duration) -> Result<CappedOutput> {
+    cmd.kill_on_drop(true);
+    timeout(limit, capped_output_with_limit(cmd, MAX_CAPTURED_STDOUT))
+        .await
+        .with_context(|| format!("command timed out after {limit:?}"))?
 }
 
 /// Runs a command and captures its output, giving up on stdout beyond
@@ -149,7 +164,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     /// Every case here must finish promptly. A capture bug shows up as a hang,
     /// and a hang is far more expensive to diagnose than a failure.
@@ -158,6 +172,36 @@ mod tests {
             .await
             .expect("capture should not block")
             .expect("capture should succeed")
+    }
+
+    #[tokio::test]
+    async fn gives_up_on_a_command_that_runs_too_long() {
+        // sleep 30 is the stand-in for a grep pattern that backtracks.
+        let mut cmd = Command::new("sleep");
+        cmd.arg("30");
+
+        let started = std::time::Instant::now();
+        let err = capped_output_within(&mut cmd, Duration::from_millis(200))
+            .await
+            .err()
+            .expect("a command past its limit is an error");
+
+        assert!(err.to_string().contains("timed out"), "{err:#}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn kills_the_command_it_gives_up_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("still-running");
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("sleep 1 && touch {}", marker.display()));
+
+        let _ = capped_output_within(&mut cmd, Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        assert!(!marker.exists(), "the command outlived its timeout");
     }
 
     #[tokio::test]
