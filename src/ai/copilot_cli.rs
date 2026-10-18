@@ -17,10 +17,13 @@
 //!
 //! ## Safety
 //!
-//! Copilot's non-interactive (stdin) mode retains tool access. To minimize
-//! side effects we pass `--disable-builtin-mcps` (no MCP servers) and
-//! `--no-custom-instructions` (ignores local AGENTS.md). The provider is
-//! used as a text-completion backend only.
+//! Copilot's non-interactive (stdin) mode retains tool access, and its
+//! programmatic use requires `--allow-all-tools`. The prompt carries patch
+//! text from anyone who can post to a reviewed list, so we also pass
+//! `--deny-tool` for shell, write and read, which takes precedence over
+//! `--allow-all-tools`; `--disable-builtin-mcps` drops the MCP servers and
+//! `--no-custom-instructions` ignores local AGENTS.md. The provider is used
+//! as a text-completion backend only.
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -50,6 +53,7 @@ pub fn build_copilot_args(model: &str) -> Vec<String> {
         "--disable-builtin-mcps".to_string(),
         "--no-custom-instructions".to_string(),
         "--allow-all-tools".to_string(),
+        "--deny-tool=shell,write,read".to_string(),
     ]
 }
 
@@ -320,6 +324,7 @@ mod tests {
         assert!(args.contains(&"--disable-builtin-mcps".to_string()));
         assert!(args.contains(&"--no-custom-instructions".to_string()));
         assert!(args.contains(&"--allow-all-tools".to_string()));
+        assert!(args.contains(&"--deny-tool=shell,write,read".to_string()));
         assert!(args.contains(&"-s".to_string()));
         assert!(args.iter().any(|a| a == "claude-sonnet-4.5"));
     }
