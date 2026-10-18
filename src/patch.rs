@@ -107,7 +107,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
         .from()
         .and_then(|addr| addr.first())
         .map(|a| {
-            let name = a.name().unwrap_or_default().trim();
+            let name = &clean_display_name(a.name().unwrap_or_default());
             let address = a.address().unwrap_or("unknown@localhost").trim();
             let addr = if address.is_empty() || !address.contains('@') {
                 "unknown@localhost"
@@ -126,7 +126,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
         mail_parser::HeaderValue::Address(x_orig_addr) => x_orig_addr.first(),
         _ => None,
     }) {
-        let name = first_addr.name().unwrap_or_default().trim();
+        let name = &clean_display_name(first_addr.name().unwrap_or_default());
         let address = first_addr.address().unwrap_or("").trim();
         let author_email = extract_email(&author);
         if !address.is_empty() && address.contains('@') {
@@ -155,7 +155,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
                     if address.is_empty() || !address.contains('@') {
                         None
                     } else {
-                        let name = a.name().unwrap_or_default().trim();
+                        let name = &clean_display_name(a.name().unwrap_or_default());
                         if name.is_empty() {
                             Some(address.to_string())
                         } else {
@@ -177,7 +177,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
                     if address.is_empty() || !address.contains('@') {
                         None
                     } else {
-                        let name = a.name().unwrap_or_default().trim();
+                        let name = &clean_display_name(a.name().unwrap_or_default());
                         if name.is_empty() {
                             Some(address.to_string())
                         } else {
@@ -416,6 +416,16 @@ pub fn clean_subject(subject: &str) -> String {
     }
 
     cleaned
+}
+
+/// Strips control characters from a display name. An RFC 2047 encoded word
+/// can decode to CR/LF, which lettre cannot write into a mailbox header.
+pub fn clean_display_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 pub fn extract_email(author: &str) -> String {
@@ -903,6 +913,15 @@ Body";
             meta.author,
             "\"Thomas Richard (TI)\" <thomas.richard@bootlin.com>"
         );
+    }
+
+    #[test]
+    fn test_parse_email_strips_control_characters_from_names() {
+        let raw = b"From: =?utf-8?q?Bob=0D=0AX?= <bob@example.com>\r\nTo: =?utf-8?q?Al=0Ace?= <alice@example.com>\r\nCc: =?utf-8?q?=0D=0A?= <carol@example.com>\r\nMessage-ID: <123>\r\nSubject: Test\r\n\r\nbody";
+        let (meta, _) = parse_email(raw).unwrap();
+        assert_eq!(meta.author, "\"BobX\" <bob@example.com>");
+        assert_eq!(meta.to, "\"Alce\" <alice@example.com>");
+        assert_eq!(meta.cc, "carol@example.com");
     }
 
     #[test]

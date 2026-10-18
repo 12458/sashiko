@@ -94,16 +94,27 @@ impl EmailWorker {
                     );
                     let mut send_result = Ok(());
                     for attempt in 1..=SMTP_MAX_ATTEMPTS {
-                        send_result =
-                            match tokio::time::timeout(SMTP_SEND_TIMEOUT, self.send_email(&email))
-                                .await
-                            {
-                                Ok(res) => res,
-                                Err(_) => Err(anyhow::anyhow!(
-                                    "SMTP delivery timed out after {}s",
-                                    SMTP_SEND_TIMEOUT.as_secs()
-                                )),
-                            };
+                        // A panic, e.g. lettre failing to display a header,
+                        // must fail the row: left Sending, it is swept back
+                        // to Pending and panics the worker again forever.
+                        let send = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(
+                            self.send_email(&email),
+                        ));
+                        send_result = match tokio::time::timeout(SMTP_SEND_TIMEOUT, send).await {
+                            Ok(Ok(res)) => res,
+                            Ok(Err(panic)) => Err(anyhow::anyhow!(
+                                "panicked while building or sending: {}",
+                                panic
+                                    .downcast_ref::<String>()
+                                    .map(String::as_str)
+                                    .or_else(|| panic.downcast_ref::<&str>().copied())
+                                    .unwrap_or("unknown panic")
+                            )),
+                            Err(_) => Err(anyhow::anyhow!(
+                                "SMTP delivery timed out after {}s",
+                                SMTP_SEND_TIMEOUT.as_secs()
+                            )),
+                        };
                         match &send_result {
                             Ok(()) => break,
                             Err(e) if attempt < SMTP_MAX_ATTEMPTS && is_transient_smtp_error(e) => {
@@ -367,12 +378,11 @@ fn parse_lenient(s: &str) -> anyhow::Result<lettre::message::Mailbox> {
         let name = s[..start].trim();
         let email = s[start + 1..end].trim();
         let addr: lettre::Address = email.parse()?;
-        if name.is_empty() {
-            return Ok(lettre::message::Mailbox::new(None, addr));
-        } else {
-            let clean_name = name.trim_matches('"').to_string();
-            return Ok(lettre::message::Mailbox::new(Some(clean_name), addr));
-        }
+        let clean_name = crate::patch::clean_display_name(name.trim_matches('"'));
+        return Ok(lettre::message::Mailbox::new(
+            (!clean_name.is_empty()).then_some(clean_name),
+            addr,
+        ));
     }
     let addr: lettre::Address = s.parse()?;
     Ok(lettre::message::Mailbox::new(None, addr))
@@ -613,6 +623,70 @@ mod tests {
         assert!(parsed.is_ok(), "Failed to parse: {:?}", parsed.err());
         // We will see what format!() returns for plain email
         info!("Plain email formatted: {}", parsed.as_ref().unwrap());
+    }
+
+    #[test]
+    fn test_email_parsing_strips_control_characters_from_name() {
+        let addr = parse_lenient("\"Bob\r\nBcc: victim@example.com\" <bob@example.com>").unwrap();
+        assert_eq!(addr.name.as_deref(), Some("BobBcc: victim@example.com"));
+        let addr = parse_lenient("\"\r\n\" <bob@example.com>").unwrap();
+        assert_eq!(addr.name, None);
+    }
+
+    #[tokio::test]
+    async fn test_crlf_display_name_does_not_wedge_the_worker() {
+        let db = Arc::new(
+            crate::db::Database::new(&crate::settings::DatabaseSettings {
+                url: ":memory:".into(),
+                token: String::new(),
+            })
+            .await
+            .unwrap(),
+        );
+        db.migrate().await.unwrap();
+        // The author string parse_email used to store for a From header of
+        // =?utf-8?q?Bob=0D=0AX?= <bob@example.com>.
+        db.insert_transactional_email(
+            crate::db::EmailKind::BugAssignment,
+            "Pending",
+            "\"Bob\r\nX\" <bob@example.com>",
+            &[],
+            "subject",
+            "body",
+        )
+        .await
+        .unwrap();
+
+        let settings = SmtpSettings {
+            transport: MailTransport::Smtp,
+            server: Some("127.0.0.1".to_string()),
+            port: Some(1),
+            username: None,
+            password: None,
+            sendmail_path: None,
+            sender_address: "Sashiko Bot <sashiko@linux.dev>".to_string(),
+            reply_to: None,
+            dry_run: false,
+        };
+        let worker = EmailWorker::new(db.clone(), settings, false);
+        let handle = tokio::spawn(async move { worker.run().await });
+
+        let mut status = String::new();
+        for _ in 0..60 {
+            sleep(Duration::from_millis(500)).await;
+            assert!(!handle.is_finished(), "email worker exited");
+            let mut rows = db
+                .conn
+                .query("SELECT status FROM email_outbox", ())
+                .await
+                .unwrap();
+            status = rows.next().await.unwrap().unwrap().get(0).unwrap();
+            if status == "Failed" {
+                break;
+            }
+        }
+        handle.abort();
+        assert_eq!(status, "Failed");
     }
 
     #[test]
