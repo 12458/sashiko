@@ -421,10 +421,12 @@ async fn submit_patch(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: axum::http::HeaderMap,
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<SubmitRequest>,
-) -> Result<Json<SubmitResponse>, StatusCode> {
+    // Extracted as Json only once the caller is authorized: as an argument,
+    // axum would buffer and parse the body for anyone who asks.
+    request: axum::extract::Request,
+) -> Result<Json<SubmitResponse>, axum::response::Response> {
     if state.read_only {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(StatusCode::FORBIDDEN.into_response());
     }
 
     if !is_authorized(
@@ -434,8 +436,13 @@ async fn submit_patch(
         crate::settings::Permission::Ingest,
     ) {
         info!("Refused unauthorized patch submission from {}", addr);
-        return Err(StatusCode::FORBIDDEN);
+        return Err(StatusCode::FORBIDDEN.into_response());
     }
+
+    use axum::extract::FromRequest;
+    let Json(payload) = Json::<SubmitRequest>::from_request(request, &state)
+        .await
+        .map_err(IntoResponse::into_response)?;
 
     match payload {
         SubmitRequest::Inject {
@@ -451,11 +458,11 @@ async fn submit_patch(
                     .as_deref()
                     .is_some_and(|b| CommitId::parse(b).is_none())
             {
-                return Err(StatusCode::BAD_REQUEST);
+                return Err(StatusCode::BAD_REQUEST.into_response());
             }
             // Basic guardrail
             if !raw.contains("From ") && !raw.contains("Subject:") {
-                return Err(StatusCode::BAD_REQUEST);
+                return Err(StatusCode::BAD_REQUEST.into_response());
             }
 
             let id = generate_synthetic_id("inject");
@@ -479,7 +486,7 @@ async fn submit_patch(
 
             if let Err(e) = state.sender.send(event).await {
                 error!("Failed to send raw mbox to queue: {}", e);
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
             }
 
             Ok(Json(SubmitResponse {
@@ -507,7 +514,7 @@ async fn submit_patch(
                     part.starts_with('-') || part.starts_with('+') || part.contains(':')
                 });
             if has_invalid_ref {
-                return Err(StatusCode::BAD_REQUEST);
+                return Err(StatusCode::BAD_REQUEST.into_response());
             }
             let id = sha.clone();
             let repo_display = repo.as_deref().unwrap_or("local");
@@ -551,7 +558,7 @@ async fn submit_patch(
                 .await
             {
                 error!("Failed to create placeholder patchset: {}", e);
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
             }
 
             let req = FetchRequest {
@@ -564,7 +571,7 @@ async fn submit_patch(
 
             if let Err(e) = state.fetch_sender.send(req).await {
                 error!("Failed to send fetch request to queue: {}", e);
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
             }
 
             Ok(Json(SubmitResponse {
@@ -3123,6 +3130,43 @@ mod tests {
             .unwrap()
             .status();
         assert_eq!(anonymous, 403, "loopback alone must not ingest");
+
+        // Refused before the body is parsed, so a body that is not JSON at
+        // all draws the same 403, not a 400.
+        let unparsed = client
+            .post(&submit)
+            .header("content-type", "application/json")
+            .body("not json")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(unparsed, 403, "the body was parsed before authorization");
+
+        let unparsed_wrong_token = client
+            .post(&submit)
+            .bearer_auth("0".repeat(64))
+            .header("content-type", "application/json")
+            .body("not json")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(unparsed_wrong_token, 403);
+
+        let unparsed_authorized = client
+            .post(&submit)
+            .bearer_auth(local_token.secret())
+            .header("content-type", "application/json")
+            .body("not json")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(
+            unparsed_authorized, 400,
+            "an authorized caller still gets the extractor's rejection"
+        );
 
         let wrong = client
             .post(&submit)
