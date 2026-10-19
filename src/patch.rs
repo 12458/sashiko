@@ -96,12 +96,21 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
         .parse(raw_email)
         .ok_or_else(|| anyhow!("Failed to parse email"))?;
 
-    let message_id = message
-        .message_id()
-        .ok_or_else(|| anyhow!("No Message-ID header"))?
-        .to_string();
+    let message_id = clean_display_name(
+        message
+            .message_id()
+            .ok_or_else(|| anyhow!("No Message-ID header"))?,
+    );
+    if message_id.is_empty() {
+        return Err(anyhow!("Empty Message-ID header"));
+    }
 
-    let subject = message.subject().unwrap_or("(no subject)").to_string();
+    let raw_subject = clean_display_name(message.subject().unwrap_or("(no subject)"));
+    let subject = if raw_subject.is_empty() {
+        "(no subject)".to_string()
+    } else {
+        raw_subject
+    };
 
     let mut author = message
         .from()
@@ -191,14 +200,28 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
         .unwrap_or_default();
 
     let in_reply_to = match message.in_reply_to() {
-        HeaderValue::Text(t) => Some(t.to_string()),
-        HeaderValue::TextList(l) => l.first().map(|s| s.to_string()),
+        HeaderValue::Text(t) => Some(clean_display_name(t)).filter(|s| !s.is_empty()),
+        HeaderValue::TextList(l) => l
+            .iter()
+            .map(|s| clean_display_name(s))
+            .find(|s| !s.is_empty()),
         _ => None,
     };
 
     let references = match message.references() {
-        HeaderValue::Text(t) => vec![t.to_string()],
-        HeaderValue::TextList(l) => l.iter().map(|s| s.to_string()).collect(),
+        HeaderValue::Text(t) => {
+            let cleaned = clean_display_name(t);
+            if cleaned.is_empty() {
+                vec![]
+            } else {
+                vec![cleaned]
+            }
+        }
+        HeaderValue::TextList(l) => l
+            .iter()
+            .map(|s| clean_display_name(s))
+            .filter(|s| !s.is_empty())
+            .collect(),
         _ => vec![],
     };
 
@@ -965,11 +988,12 @@ Body";
 
     #[test]
     fn test_parse_email_strips_control_characters_from_names() {
-        let raw = b"From: =?utf-8?q?Bob=0D=0AX?= <bob@example.com>\r\nTo: =?utf-8?q?Al=0Ace?= <alice@example.com>\r\nCc: =?utf-8?q?=0D=0A?= <carol@example.com>\r\nMessage-ID: <123>\r\nSubject: Test\r\n\r\nbody";
+        let raw = b"From: =?utf-8?q?Bob=0D=0AX?= <bob@example.com>\r\nTo: =?utf-8?q?Al=0Ace?= <alice@example.com>\r\nCc: =?utf-8?q?=0D=0A?= <carol@example.com>\r\nMessage-ID: <123>\r\nSubject: =?utf-8?q?Sub=0D=0Aject?=\r\n\r\nbody";
         let (meta, _) = parse_email(raw).unwrap();
         assert_eq!(meta.author, "\"BobX\" <bob@example.com>");
         assert_eq!(meta.to, "\"Alce\" <alice@example.com>");
         assert_eq!(meta.cc, "carol@example.com");
+        assert_eq!(meta.subject, "Subject");
     }
 
     #[test]

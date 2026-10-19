@@ -252,10 +252,11 @@ fn build_email_message(
 ) -> anyhow::Result<Message> {
     let from = parse_lenient(&settings.sender_address)?;
     let message_id = format!("<sashiko-outbox-{}@{}>", email_row.id, from.email.domain());
+    let clean_subject = crate::patch::clean_display_name(&email_row.subject);
     let mut builder = Message::builder()
         .message_id(Some(message_id))
         .from(from.clone())
-        .subject(&email_row.subject);
+        .subject(clean_subject);
 
     if let Some(label) = email_row.kind.transactional_list_label() {
         // Email addressed to a person rather than a thread must not provoke a
@@ -268,7 +269,7 @@ fn build_email_message(
     } else if email_row.kind == crate::db::EmailKind::ReviewNotification
         && let Some(reply_to) = &settings.reply_to
     {
-        match reply_to.parse() {
+        match parse_lenient(reply_to) {
             Ok(addr) => builder = builder.reply_to(addr),
             Err(e) => warn!("Failed to parse reply_to address '{}': {}", reply_to, e),
         }
@@ -290,10 +291,11 @@ fn build_email_message(
         }
     }
 
-    if !email_row.in_reply_to.is_empty() {
+    let clean_in_reply_to = crate::patch::clean_display_name(&email_row.in_reply_to);
+    if !clean_in_reply_to.is_empty() {
         builder = builder.header(lettre::message::header::InReplyTo::from(format!(
             "<{}>",
-            email_row.in_reply_to
+            clean_in_reply_to
         )));
     }
 
@@ -301,9 +303,13 @@ fn build_email_message(
         let refs: Vec<String> = email_row
             .references_hdr
             .split_whitespace()
+            .map(crate::patch::clean_display_name)
+            .filter(|part| !part.is_empty())
             .map(|part| format!("<{}>", part))
             .collect();
-        builder = builder.references(refs.join(" "));
+        if !refs.is_empty() {
+            builder = builder.references(refs.join(" "));
+        }
     }
 
     Ok(builder
@@ -635,6 +641,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_crlf_display_name_does_not_wedge_the_worker() {
+        let dir = tempfile::tempdir().unwrap();
         let db = Arc::new(
             crate::db::Database::new(&crate::settings::DatabaseSettings {
                 url: ":memory:".into(),
@@ -644,36 +651,26 @@ mod tests {
             .unwrap(),
         );
         db.migrate().await.unwrap();
-        // The author string parse_email used to store for a From header of
-        // =?utf-8?q?Bob=0D=0AX?= <bob@example.com>.
+        // The author and subject strings parse_email used to store for headers
+        // containing RFC 2047 encoded CR/LF sequences.
         db.insert_transactional_email(
             crate::db::EmailKind::BugAssignment,
             "Pending",
             "\"Bob\r\nX\" <bob@example.com>",
             &[],
-            "subject",
+            "sub\r\nject",
             "body",
         )
         .await
         .unwrap();
 
-        let settings = SmtpSettings {
-            transport: MailTransport::Smtp,
-            server: Some("127.0.0.1".to_string()),
-            port: Some(1),
-            username: None,
-            password: None,
-            sendmail_path: None,
-            sender_address: "Sashiko Bot <sashiko@linux.dev>".to_string(),
-            reply_to: None,
-            dry_run: false,
-        };
+        let settings = sendmail_settings(stub_sendmail(dir.path()));
         let worker = EmailWorker::new(db.clone(), settings, false);
         let handle = tokio::spawn(async move { worker.run().await });
 
         let mut status = String::new();
         for _ in 0..60 {
-            sleep(Duration::from_millis(500)).await;
+            sleep(Duration::from_millis(50)).await;
             assert!(!handle.is_finished(), "email worker exited");
             let mut rows = db
                 .conn
@@ -681,12 +678,12 @@ mod tests {
                 .await
                 .unwrap();
             status = rows.next().await.unwrap().unwrap().get(0).unwrap();
-            if status == "Failed" {
+            if status == "Sent" || status == "Failed" {
                 break;
             }
         }
         handle.abort();
-        assert_eq!(status, "Failed");
+        assert_eq!(status, "Sent");
     }
 
     #[test]
