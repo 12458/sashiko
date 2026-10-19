@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::toolbox::SashikoToolContext;
+use crate::toolbox::command::for_each_line;
 use crate::toolbox::framework::LlmTool;
 use crate::toolbox::utils::validate_path;
 use anyhow::{Result, anyhow};
@@ -66,17 +67,10 @@ impl LlmTool<SashikoToolContext> for GitLsTool {
         let mut cmd = crate::git_cmd::in_dir_async(&context.worktree_path);
         cmd.args(["ls-tree", &tree_spec]);
 
-        let output = cmd.output().await?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Ok(
-                json!({ "error": format!("git ls-tree failed for {}: {}", tree_spec, stderr) }),
-            );
-        }
-
-        let content = String::from_utf8_lossy(&output.stdout).to_string();
         let mut entries = Vec::new();
-        for line in content.lines() {
+        let mut total_entries = 0;
+
+        let output = for_each_line(&mut cmd, |line| {
             let split_tab: Vec<&str> = line.split('\t').collect();
             if split_tab.len() >= 2 {
                 let filename = split_tab[1];
@@ -86,16 +80,23 @@ impl LlmTool<SashikoToolContext> for GitLsTool {
                         "tree" => "dir",
                         _ => "file",
                     };
-                    entries.push(json!({ "name": filename, "type": ty }));
+                    total_entries += 1;
+                    if entries.len() < 1000 {
+                        entries.push(json!({ "name": filename, "type": ty }));
+                    }
                 }
             }
+        })
+        .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Ok(
+                json!({ "error": format!("git ls-tree failed for {}: {}", tree_spec, stderr) }),
+            );
         }
 
-        let total_entries = entries.len();
         let truncated = total_entries > 1000;
-        if truncated {
-            entries.truncate(1000);
-        }
 
         Ok(json!({
             "entries": entries,

@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use crate::toolbox::SashikoToolContext;
+use crate::toolbox::command::for_each_line;
 use crate::toolbox::framework::LlmTool;
 use crate::toolbox::utils::{glob_to_regex, validate_path};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::io::AsyncBufReadExt;
 
 pub struct GitFindFilesTool;
 
@@ -70,6 +70,8 @@ impl LlmTool<SashikoToolContext> for GitFindFilesTool {
             return Err(anyhow!("Invalid revision"));
         }
 
+        let regex = glob_to_regex(pattern)?;
+
         let mut cmd = crate::git_cmd::in_dir_async(&context.worktree_path);
         cmd.args(["ls-tree", "-r", "--name-only", revision]);
 
@@ -84,44 +86,28 @@ impl LlmTool<SashikoToolContext> for GitFindFilesTool {
             cmd.arg("--").arg(p);
         }
 
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
-
-        let mut child = cmd.spawn()?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("Failed to open stdout"))?;
-        let mut reader = tokio::io::BufReader::new(stdout).lines();
-
-        let regex = glob_to_regex(pattern)?;
         let mut matched_files = Vec::new();
         let mut total_found = 0;
         let mut is_truncated = false;
 
-        while let Some(line) = reader.next_line().await? {
-            if regex.is_match(&line) {
+        let output = for_each_line(&mut cmd, |line| {
+            if regex.is_match(line) {
                 total_found += 1;
                 if matched_files.len() < 1000 {
-                    matched_files.push(line);
+                    matched_files.push(line.to_string());
                 } else {
                     is_truncated = true;
-                    let _ = child.kill().await;
-                    break;
                 }
             }
+        })
+        .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(anyhow!("git ls-tree failed: {}", stderr));
         }
 
-        let status = child.wait().await?;
-        if !is_truncated && !status.success() {
-            let mut stderr_str = String::new();
-            if let Some(mut stderr) = child.stderr.take() {
-                use tokio::io::AsyncReadExt;
-                let _ = stderr.read_to_string(&mut stderr_str).await;
-            }
-            return Err(anyhow!("git ls-tree failed: {}", stderr_str.trim()));
-        }
-
+        let returned_items = matched_files.len();
         let truncated_files = matched_files.join("\n");
 
         Ok(json!({
@@ -129,7 +115,7 @@ impl LlmTool<SashikoToolContext> for GitFindFilesTool {
             "truncated": is_truncated,
             "metadata": {
                 "total_items": total_found,
-                "returned_items": if is_truncated { 1000 } else { total_found }
+                "returned_items": returned_items
             },
             "next_page_hint": if is_truncated {
                 Some("More than 1000 files matched. Please use a narrower path or pattern prefix to restrict search.".to_string())
