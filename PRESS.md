@@ -32,6 +32,7 @@ In-depth coverage from the premier Linux news source.
 * [Development statistics for the 7.2 kernel](https://lwn.net/Articles/1088776/)
 * [An update on the Sashiko patch-review system](https://lwn.net/Articles/1096963/)
 * [The 2026 Maintainers Summit](https://lwn.net/Articles/1099594/)
+* [Development statistics for the 7.3 kernel](https://lwn.net/Articles/1100241/)
 
 ## The Linux Foundation
 * [Linux Foundation on X](https://x.com/linuxfoundation/status/2036497032429305989)
