@@ -217,16 +217,23 @@ fn context_window_for_model(model: &str) -> usize {
 }
 
 /// The tags `build_prompt` frames turns with.
-const FRAME_TAGS: [&str; 5] = ["system", "user", "assistant", "tool_call", "tool_result"];
+const FRAME_TAGS: [&str; 6] = [
+    "system",
+    "user",
+    "assistant",
+    "tool_call",
+    "tool_result",
+    "available_tools",
+];
 
-/// Respells every closing tag, and every opening frame tag in the form
-/// `build_prompt` writes it, in `content`, so that patch text or tool output
-/// cannot spell the tags that end its own turn and open one the model would
-/// read as ours.
+/// Respells closing and opening frame tags in `content`, so that patch text or
+/// tool output cannot spell the tags that end its own turn and open one the
+/// model would read as ours, while leaving unrelated HTML/XML tags intact.
 fn escape_frames(content: &str) -> String {
-    let mut out = content.replace("</", "<\\/");
+    let mut out = content.to_string();
     for tag in FRAME_TAGS {
-        for end in [">", " "] {
+        for end in [">", " ", "\t", "\n", "\r"] {
+            out = out.replace(&format!("</{tag}{end}"), &format!("<\\/{tag}{end}"));
             out = out.replace(&format!("<{tag}{end}"), &format!("<\\{tag}{end}"));
         }
     }
@@ -612,13 +619,15 @@ mod tests {
 
         let code = build_prompt(&make_request(vec![AiMessage {
             role: AiRole::User,
-            content: Some("#include <system_error>\nstd::vector<users> v;".to_string()),
+            content: Some(
+                "#include <system_error>\nstd::vector<users> v;\n<div>hello</div>".to_string(),
+            ),
             thought: None,
             thought_signature: None,
             tool_calls: None,
             tool_call_id: None,
         }]));
-        assert!(code.contains("#include <system_error>\nstd::vector<users> v;"));
+        assert!(code.contains("#include <system_error>\nstd::vector<users> v;\n<div>hello</div>"));
     }
 
     #[test]
