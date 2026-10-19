@@ -117,7 +117,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
             if name.is_empty() || name.to_lowercase() == "unknown" {
                 addr.to_string()
             } else {
-                format!("\"{}\" <{}>", name.replace('"', "\\\""), addr)
+                format_mailbox(name, addr)
             }
         })
         .unwrap_or_else(|| "unknown@localhost".to_string());
@@ -134,7 +134,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
                 author = if name.is_empty() || name.to_lowercase() == "unknown" {
                     address.to_string()
                 } else {
-                    format!("\"{}\" <{}>", name.replace('"', "\\\""), address)
+                    format_mailbox(name, address)
                 };
             } else if author_email.to_lowercase().starts_with("devnull+") {
                 tracing::warn!(
@@ -159,7 +159,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
                         if name.is_empty() {
                             Some(address.to_string())
                         } else {
-                            Some(format!("\"{}\" <{}>", name.replace("\"", "\\\""), address))
+                            Some(format_mailbox(name, address))
                         }
                     }
                 })
@@ -181,7 +181,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
                         if name.is_empty() {
                             Some(address.to_string())
                         } else {
-                            Some(format!("\"{}\" <{}>", name.replace("\"", "\\\""), address))
+                            Some(format_mailbox(name, address))
                         }
                     }
                 })
@@ -426,6 +426,54 @@ pub fn clean_display_name(name: &str) -> String {
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+fn format_mailbox(name: &str, address: &str) -> String {
+    let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{}\" <{}>", escaped, address)
+}
+
+/// Splits a comma-separated recipient list into individual entries without
+/// splitting on commas inside double-quoted display names.
+pub fn split_address_list(list: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for ch in list.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if in_quotes && ch == '\\' {
+            current.push(ch);
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_quotes = !in_quotes;
+            current.push(ch);
+            continue;
+        }
+        if ch == ',' && !in_quotes {
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                result.push(trimmed.to_string());
+            }
+            current.clear();
+        } else {
+            current.push(ch);
+        }
+    }
+
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        result.push(trimmed.to_string());
+    }
+
+    result
 }
 
 pub fn extract_email(author: &str) -> String {
@@ -922,6 +970,24 @@ Body";
         assert_eq!(meta.author, "\"BobX\" <bob@example.com>");
         assert_eq!(meta.to, "\"Alce\" <alice@example.com>");
         assert_eq!(meta.cc, "carol@example.com");
+    }
+
+    #[test]
+    fn test_split_address_list_preserves_quoted_commas() {
+        let raw = b"From: Author <author@example.com>\r\nTo: \"Tabba, Fuad\" <fuad@example.com>, \"Trail\\\\\" <trail@example.com>, list@vger.kernel.org\r\nCc: \"Doe, \\\"Jr,.,\\\" John\" <john@example.com>\r\nMessage-ID: <123>\r\nSubject: Test\r\n\r\nbody";
+        let (meta, _) = parse_email(raw).unwrap();
+        assert_eq!(
+            split_address_list(&meta.to),
+            vec![
+                "\"Tabba, Fuad\" <fuad@example.com>".to_string(),
+                "\"Trail\\\\\" <trail@example.com>".to_string(),
+                "list@vger.kernel.org".to_string(),
+            ]
+        );
+        assert_eq!(
+            split_address_list(&meta.cc),
+            vec!["\"Doe, \\\"Jr,.,\\\" John\" <john@example.com>".to_string()]
+        );
     }
 
     #[test]

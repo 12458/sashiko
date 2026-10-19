@@ -2984,20 +2984,10 @@ impl Reviewer {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to parse email policy: {}", e))?;
 
-        let to_list: Vec<String> = msg_details
-            .to
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        let cc_list: Vec<String> = msg_details
-            .cc
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        let to_list =
+            crate::patch::split_address_list(msg_details.to.as_deref().unwrap_or_default());
+        let cc_list =
+            crate::patch::split_address_list(msg_details.cc.as_deref().unwrap_or_default());
 
         let patch_author = msg_details.author.unwrap_or_default();
         let patch_subject = msg_details.subject.unwrap_or_default();
