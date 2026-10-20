@@ -130,7 +130,7 @@ spec:
             - name: SASHIKO__REVIEW__CONCURRENCY
               value: "24"
             - name: SASHIKO__REVIEW__EFFORT
-              value: "dynamic"
+              value: "high"
             - name: SASHIKO__LINUX_BUG__ENABLED
               value: "true"
             - name: SASHIKO__LINUX_BUG__FIX_CHECK_ENABLED

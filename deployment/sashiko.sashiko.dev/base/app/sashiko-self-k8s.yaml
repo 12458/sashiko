@@ -130,7 +130,7 @@ spec:
             - name: SASHIKO__REVIEW__CONCURRENCY
               value: "12"
             - name: SASHIKO__REVIEW__EFFORT
-              value: "dynamic"
+              value: "high"
             - name: SASHIKO__SERVER__PORT
               value: "8080"
             # Sign-in links are mailed, so the service has to know the URL it
