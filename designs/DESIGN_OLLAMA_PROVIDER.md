@@ -40,11 +40,11 @@ pub struct OllamaClient {
 
 | Struct | Key Fields |
 |---|---|
-| `OllamaRequest` | `model`, `messages`, `stream`, `options?` |
+| `OllamaRequest` | `model`, `messages`, `stream`, `format?`, `options?` |
 | `OllamaMessage` | `role`, `content?`, `tool_calls?` |
 | `OllamaToolCall` | `function: OllamaToolCallFunction` |
 | `OllamaToolCallFunction` | `name`, `arguments` (JSON object) |
-| `OllamaOptions` | `temperature?`, `num_ctx?`, `num_predict?`, `format?`, `think?` |
+| `OllamaOptions` | `temperature?`, `num_ctx?`, `num_predict?`, `think?` |
 | `OllamaResponse` | `message`, metrics (`total_duration`, `eval_count`, etc.) |
 
 #### Error Enum
@@ -77,6 +77,7 @@ pub enum OllamaError {
 - Handles edge cases where Ollama lacks a direct equivalent role (e.g. mapping `AiRole::Tool` messages intelligently to fit the Ollama schema).
 - Tool definitions are serialized according to Ollama's expectations.
 - Options like `temperature`, `context_window_size`, and `think` are placed into the `OllamaOptions` object (`num_ctx`, `num_predict`).
+- `AiResponseFormat::Json` sets the top-level `format` field to the supplied JSON Schema, or to `"json"` when no schema is supplied. Text and unspecified response formats omit the field, following the [Ollama Chat API](https://docs.ollama.com/api/chat).
 
 #### Response Translation: `OllamaResponse` -> `AiResponse`
 - Extracts text content and optional `tool_calls`.
@@ -100,6 +101,10 @@ pub struct OllamaSettings {
 - `test_translate_ollama_request_with_tool_calls`
 - `test_translate_request_preserves_temperature`
 - `test_translate_request_with_none_temperature`
+
+### Response Format Tests (in `src/ai/ollama/format_tests.rs`)
+- A serialization matrix covers unspecified, text, JSON, and JSON Schema response formats and verifies that `options` contains no `format` field.
+- A local HTTP fixture captures a schema request sent through `generate_content`, including its top-level `format`, and returns a normal text response (`server` feature).
 
 ### Response Translation Tests
 - `test_translate_ollama_response_text`

@@ -15,8 +15,8 @@
 // This code was based on openai.rs
 
 use crate::ai::{
-    AiErrorClass, AiProvider, AiRequest, AiResponse, AiRole, AiUsage, ClassifyAiError,
-    ProviderCapabilities, ToolCall, classify_status_code,
+    AiErrorClass, AiProvider, AiRequest, AiResponse, AiResponseFormat, AiRole, AiUsage,
+    ClassifyAiError, ProviderCapabilities, ToolCall, classify_status_code,
 };
 use crate::utils::redact_secret;
 use anyhow::Result;
@@ -32,6 +32,8 @@ pub struct OllamaRequest {
     pub messages: Vec<OllamaMessage>,
     #[serde(default)]
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<OllamaOptions>,
 }
@@ -64,9 +66,6 @@ pub struct OllamaOptions {
     pub num_ctx: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_predict: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub format: Option<String>,
-
     // TODO: on Ollama, think can either be string with
     // 4 possible values (None, "medium", "high", or "max")
     // or a boolean. If false, think mode is disabled (true is default).
@@ -290,12 +289,18 @@ fn translate_ollama_request(
         }
     }
 
+    let format = match request.response_format {
+        Some(AiResponseFormat::Json { schema }) => {
+            Some(schema.unwrap_or_else(|| Value::String("json".to_string())))
+        }
+        Some(AiResponseFormat::Text) | None => None,
+    };
+
     // Build options with temperature and token limit
     let options = OllamaOptions {
         temperature: request.temperature,
         num_ctx: Some(context_window_size),
         num_predict: Some(max_tokens as i32),
-        format: Some("json".to_string()),
         think: think_mode,
     };
 
@@ -303,6 +308,7 @@ fn translate_ollama_request(
         model: String::new(),
         messages,
         stream: false,
+        format,
         options: Some(options),
     })
 }
@@ -384,6 +390,10 @@ impl AiProvider for OllamaClient {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "ollama/format_tests.rs"]
+mod format_tests;
 
 #[cfg(test)]
 mod tests {
