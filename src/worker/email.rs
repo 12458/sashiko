@@ -398,19 +398,29 @@ fn parse_lenient(s: &str) -> anyhow::Result<lettre::message::Mailbox> {
 mod tests {
     use super::*;
 
+    /// Writes an executable script named sendmail in `dir`. A child
+    /// process writes it: a script written from the test binary can fail
+    /// to exec with ETXTBSY, since a child another test thread forks
+    /// meanwhile holds the write fd open until its own exec.
+    fn write_script(dir: &std::path::Path, body: &str) -> String {
+        let script = dir.join("sendmail");
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-c", "printf '%s' \"$1\" > \"$0\" && chmod 755 \"$0\""])
+            .arg(&script)
+            .arg(body)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        script.to_str().unwrap().to_string()
+    }
+
     /// Stands in for the MTA. Records the argument vector and the
     /// message on stdin so a test can inspect what sashiko handed over.
     fn stub_sendmail(dir: &std::path::Path) -> String {
-        use std::os::unix::fs::PermissionsExt;
-
-        let script = dir.join("sendmail");
-        std::fs::write(
-            &script,
+        write_script(
+            dir,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/argv\"\ncat > \"$(dirname \"$0\")/stdin\"\n",
         )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        script.to_str().unwrap().to_string()
     }
 
     fn sendmail_settings(path: String) -> SmtpSettings {
@@ -487,19 +497,15 @@ mod tests {
     #[tokio::test]
     async fn test_sendmail_reports_a_nonzero_exit() {
         let dir = tempfile::tempdir().unwrap();
-        let script = dir.path().join("sendmail");
         // Read the message before rejecting it, as an MTA does. A script
         // that exits first races lettre's write to its stdin, and the
         // test then sees EPIPE instead of the exit status.
-        std::fs::write(
-            &script,
+        let script = write_script(
+            dir.path(),
             "#!/bin/sh\ncat >/dev/null\necho 'queue full' >&2\nexit 75\n",
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
-        let settings = sendmail_settings(script.to_str().unwrap().to_string());
+        let settings = sendmail_settings(script);
         let msg = Message::builder()
             .from(settings.sender_address.parse().unwrap())
             .to("maintainer@example.com".parse().unwrap())
@@ -529,18 +535,14 @@ mod tests {
     #[tokio::test]
     async fn test_sendmail_timeout_kills_the_child() {
         let dir = tempfile::tempdir().unwrap();
-        let script = dir.path().join("sendmail");
         // exec keeps the shell's PID, so the recorded PID is the
         // process lettre spawned and the one the kill must reach.
-        std::fs::write(
-            &script,
+        let script = write_script(
+            dir.path(),
             "#!/bin/sh\necho $$ > \"$(dirname \"$0\")/pid\"\nexec sleep 600\n",
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
-        let settings = sendmail_settings(script.to_str().unwrap().to_string());
+        let settings = sendmail_settings(script);
         let msg = Message::builder()
             .from(settings.sender_address.parse().unwrap())
             .to("maintainer@example.com".parse().unwrap())
