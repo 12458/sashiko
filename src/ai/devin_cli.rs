@@ -34,7 +34,9 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use super::claude_cli::{build_prompt, log_and_redact_stderr, parse_inner_response};
-use crate::ai::{AiProvider, AiRequest, AiResponse, ProviderCapabilities};
+use crate::ai::{
+    AiProvider, AiRequest, AiResponse, AiUsage, ProviderCapabilities, token_budget::TokenBudget,
+};
 
 pub struct DevinCliProvider {
     pub model: Option<String>,
@@ -135,7 +137,18 @@ impl AiProvider for DevinCliProvider {
             warn!("devin-cli produced empty stdout");
         }
 
-        parse_inner_response(&raw, None)
+        // devin does not print usage statistics, so estimate prompt and
+        // completion tokens from their sizes, as kiro-cli does.
+        let prompt_tokens = TokenBudget::approximate_tokens(&prompt);
+        let completion_tokens = TokenBudget::approximate_tokens(&raw);
+        let usage = Some(AiUsage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+            cached_tokens: None,
+        });
+
+        parse_inner_response(&raw, usage)
     }
 
     fn get_capabilities(&self) -> ProviderCapabilities {
