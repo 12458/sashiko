@@ -1,0 +1,42 @@
+# EXT4 FILE SYSTEM — (top level)
+
+This component contains the `user.*` extended attribute handler (`fs/ext4/xattr_user.c`), the ftrace event definitions for the entire ext4 subsystem (`include/trace/events/ext4.h`), and the userspace API header defining ext4-specific ioctl commands, flags, and structures (`include/uapi/linux/ext4.h`).
+
+## Architecture & Data Flow
+- When adding or removing an `EXT4_FC_REASON_*` enum constant before `EXT4_FC_REASON_MAX`, update `TRACE_DEFINE_ENUM()`, `show_fc_reason()`, and the hardcoded `%s:%u` format specifiers and `FC_REASON_NAME_STAT()` arguments in `TRACE_EVENT(ext4_fc_stats)` in `include/trace/events/ext4.h` in lockstep. [F419]
+- In `include/trace/events/ext4.h`, `TP_fast_assign` blocks reading on-disk `struct ext4_extent *` arguments must decode `ee_block` with `le32_to_cpu()`, physical start blocks with `ext4_ext_pblock()`, and extent lengths with `ext4_ext_get_actual_len()` rather than reading `ee_len` directly. [F428]
+- In `include/trace/events/ext4.h`, `TP_STRUCT__entry` fields recording physical block numbers (`ext4_fsblk_t`, `__u64`, `u64`) or byte offsets/lengths (`loff_t`) must use 64-bit types rather than 32-bit types or `unsigned long` so values >= 2^32 are not truncated in the ring buffer. [F436]
+- `TRACE_EVENT(ext4_fc_cleanup)` in `include/trace/events/ext4.h` casts `journal->j_private` directly to `struct super_block *` and dereferences `sb->s_dev`, requiring `journal->j_private` to point to a valid `struct super_block` whenever `trace_ext4_fc_cleanup()` is called. [F442]
+
+## Synchronization
+- Because `ext4__es_extent` (`ext4_es_insert_extent`, `ext4_es_cache_extent`), `ext4_es_find_extent_range_exit`, `ext4_es_lookup_extent_exit`, and `ext4_es_insert_delayed_extent` dereference `es` in `TP_fast_assign` outside `EXT4_I(inode)->i_es_lock`, callers must pass a caller-private `struct extent_status` snapshot rather than an in-tree node from `EXT4_I(inode)->i_es_tree`. [F408]
+- `ext4__mb_new_pa` (`ext4_mb_new_inode_pa`, `ext4_mb_new_group_pa`) reads `pa->pa_pstart`, `pa->pa_lstart`, and `pa->pa_len` in `TP_fast_assign` and must be invoked after those fields are initialized and before `pa` is published onto `grp->bb_prealloc_list` or `ei->i_prealloc_node`. Furthermore, `ext4__mb_new_pa`, `ext4_mb_release_inode_pa`, `ext4_mb_release_group_pa`, and `ext4_mballoc_discard` execute under the block group bit-spinlock (`ext4_lock_group(sb, group)`), so their `TP_fast_assign` blocks run in atomic context and must never sleep. [F410, F446]
+- `TP_fast_assign` in `ext4_da_update_reserve_space`, `ext4_da_reserve_space`, and `ext4_da_release_space` (`include/trace/events/ext4.h`) executes under `spin_lock(&EXT4_I(inode)->i_block_reservation_lock)`, which serializes reads of `EXT4_I(inode)->i_reserved_data_blocks` and forbids sleeping calls; callers must not invoke them after dropping `i_block_reservation_lock`. [F445]
+- `TRACE_EVENT(ext4_drop_inode)` is invoked from `ext4_drop_inode` (`super_operations.drop_inode` in `fs/ext4/super.c`) while holding `inode->i_lock` (forbidding sleeping), and `ext4_es_shrink*` tracepoints run from `ext4_es_count`/`ext4_es_scan` shrinker callbacks during memory reclaim (forbidding `GFP_KERNEL` allocations). [F447]
+
+## Object Lifetimes
+- `TRACE_EVENT(ext4_error)` in `include/trace/events/ext4.h` records `function` as a raw `const char *` pointer (`__field(const char *, function)`) rather than copying it with `__string()`, so all callers of `trace_ext4_error()` must pass a NUL-terminated string with static storage duration (such as `__func__` or `""`), never a stack or dynamically freed buffer. [F441]
+
+## API Contracts
+- `trace_ext4_es_lookup_extent_exit` and `trace_ext4_es_find_extent_range_exit` unconditionally read `es->es_lblk`, `es->es_len`, and `es->es_pblk` in `TP_fast_assign` even on lookup miss; callers must pass a non-`NULL` `es` with `es_lblk`, `es_len`, and `es_pblk` zero-initialized on miss paths. [F413]
+- In `TRACE_EVENT(ext4_mballoc_alloc)` (`include/trace/events/ext4.h`), `TP_printk` evaluates `__entry->buddy ? 1 << __entry->buddy : 0` to convert `ac->ac_buddy` into a block count, requiring `ac->ac_buddy` to store a buddy order (`< 31`) rather than a raw block count. [F437]
+- In `include/trace/events/ext4.h`, every enum constant referenced directly or indirectly (such as via `1UL << BH_*` or `1 << ES_*_B`) inside `__print_flags()` or `__print_symbolic()` (e.g., `show_mflags`, `show_extent_status`, `show_fc_reason`, `show_criteria`) must be wrapped in `TRACE_DEFINE_ENUM()`. [F443]
+
+## Error Handling
+- `ext4_xattr_user_get` and `ext4_xattr_user_set` must check `test_opt(inode->i_sb, XATTR_USER)` and return `-EOPNOTSUPP` before delegating to `ext4_xattr_get` or `ext4_xattr_set`, whereas `ext4_xattr_user_list` returns a `bool` indicating whether `XATTR_USER` is enabled on `dentry->d_sb`. [F411]
+- In `DECLARE_EVENT_CLASS(ext4__mballoc, ...)` (instantiated by `ext4_mballoc_discard` and `ext4_mballoc_free`), `inode` may be `NULL` (when discarding group preallocations or free extents), so `TP_fast_assign` must guard `inode` before dereferencing `inode->i_ino` and derive `dev` from `sb->s_dev`. [F412]
+
+## External Contracts
+- In `include/uapi/linux/ext4.h`, ioctl commands with architecture-dependent width or alignment (`long`, `unsigned long`, or `struct ext4_new_group_input`, which places `__u32 group` before `__u64` fields without padding) require `EXT4_IOC32_*` compat definitions (`EXT4_IOC32_GROUP_ADD` / `struct compat_ext4_new_group_input` must have each field read individually in `ext4_compat_ioctl`, never routed directly to `EXT4_IOC_GROUP_ADD`). New ioctls must use fixed-width types and 8-byte-aligned `__u64` fields. [F424, F438]
+- New ext4 ioctl commands in `include/uapi/linux/ext4.h` using type `'f'` must not allocate command numbers 10, 11 (reserved for FIEMAP) or 19 through 39 (reserved for fscrypt). [F453]
+- In `struct move_extent` (`EXT4_IOC_MOVE_EXT`), `orig_start`, `donor_start`, `len`, and `moved_len` are in filesystem blocks (not bytes); `moved_len` must be initialized to `0` before `ext4_move_extents` and copied back to userspace even when `ext4_move_extents` returns an error. [F416]
+- For `struct fsuuid` (`EXT4_IOC_GETFSUUID`, `EXT4_IOC_SETFSUUID`), `fsu_flags` must be `0` (else return `-EINVAL`), and `sizeof(struct fsuuid)` covers only the 8-byte header (`fsu_len`, `fsu_flags`); the flexible array `fsu_uuid[]` must be copied separately after validating `fsu_len` (`0` size query or `>= UUID_SIZE` for get, `== UUID_SIZE` for set). [F417]
+- `struct ext4_tune_sb_params` (`include/uapi/linux/ext4.h`) has explicit padding (`pad_1`, `pad_2`, `pad[64]`) and `mount_opts[64]`; `ext4_ioctl_get_tune_sb` and `ext4_sb_setparams` must zero the struct (`memset`) and use `strscpy_pad` when copying between `mount_opts` and `es->s_mount_opts`. [F426]
+- `EXT4_IOC_GETSTATE` must only expose UAPI `EXT4_STATE_FLAG_*` bitmasks (`include/uapi/linux/ext4.h`) by translating individual `ext4_test_inode_state(inode, EXT4_STATE_*)` bit indices rather than returning raw internal `EXT4_I(inode)->i_state_flags`. [F454]
+- Any new `EXT4_IOC_CHECKPOINT_FLAG_*` bit in `include/uapi/linux/ext4.h` must be ORed into `EXT4_IOC_CHECKPOINT_FLAG_VALID`, and any new `EXT4_TUNE_FL_*` flag must be ORed into `TUNE_OPS_SUPPORTED` in `fs/ext4/ioctl.c`. [F455]
+
+## Known Pitfalls
+- In `include/trace/events/ext4.h`, `ext4_mballoc_alloc` must assign `result_*` fields from `ac->ac_f_ex` (saved before preallocation modifies `ac->ac_b_ex`), whereas `ext4_mballoc_prealloc` must assign `result_*` fields from `ac->ac_b_ex` (since `ac->ac_f_ex` is unpopulated when satisfying a request from an existing preallocation). [F430]
+- In `include/trace/events/ext4.h`, `ext4_ext_convert_to_initialized_fastpath` receives three descriptors (`map`, unwritten extent `ux`, and initialized extent `ix`) and must assign `m_*` from `map`, `u_*` from `ux`, and `i_*` from `ix`. [F433]
+- In `include/trace/events/ext4.h`, 64-bit divisions in `TP_fast_assign` (such as converting `u64 scan_time` in `ext4_es_shrink`) must use explicit helpers like `div_u64()` or `do_div()` rather than `/` or `%` so 32-bit builds do not fail to link with undefined `__udivdi3`. [F435]
+- `EXT4_IOC32_*` macros are defined in both `include/uapi/linux/ext4.h` and under `#if defined(__KERNEL__) && defined(CONFIG_COMPAT)` in `fs/ext4/ext4.h`; any change to `EXT4_IOC32_*` in `include/uapi/linux/ext4.h` must keep `fs/ext4/ext4.h` identical to avoid macro redefinition warnings or mismatches. [F457]
