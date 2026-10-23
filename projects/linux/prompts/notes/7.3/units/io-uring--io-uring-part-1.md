@@ -1,0 +1,74 @@
+# IO_URING — io_uring (part 1)
+
+Implements the `io_uring` opcode dispatch table (`opdef.c`), `io_uring_register(2)` and fixed resource management (`register.c`, `rsrc.c`), per-task context (`tctx.c`), SQPOLL kernel thread offload (`sqpoll.c`), and request handlers for poll, timeouts, file/block read-write, networking, zero-copy RX/TX (`zcrx.c`, `notif.c`), `IORING_OP_URING_CMD`, and file/process operations (`openat`/`close`, `splice`, `statx`, `fsync`, `ftruncate`, `waitid`, `xattr`, capability queries).
+
+## Architecture & Data Flow
+
+- Every opcode in `[0, IORING_OP_LAST)` must populate `io_issue_defs[]` (non-NULL `.prep`, non-NULL `.issue` when `.prep != io_eopnotsupp_prep`, and `.async_size = sizeof(...)` if `io_uring_alloc_async_data(NULL, req)` is called without an `io_alloc_cache`) and `io_cold_defs[]` (non-NULL `.name`). [F268, F315]
+- Opcodes allocating a normal fd in `.issue` (`io_openat2`, `io_accept`, `io_socket`, `io_pipe_fd`) must capture `rlimit(RLIMIT_NOFILE)` into their command struct during `.prep` and pass it to `__get_unused_fd_flags()` at issue time rather than calling `get_unused_fd_flags()`. [F360]
+- `io_ring_ctx` fds (`io_is_uring_fops(file)`) must be rejected when registering/updating fixed files (`io_sqe_files_register()`, `__io_sqe_files_update()`) and when closing a normal fd in `io_close()`. [F357]
+- In `io_sqe_files_register()` and `io_sqe_files_unregister()`, `io_file_table_set_alloc_range()` must be set to `[0, ctx->file_table.data.nr)` on registration and `[0, 0)` on unregistration; on registration failure, `io_clear_table_tags()` must run before `io_sqe_files_unregister()`. [F252]
+- `io_clone_buffers()` must return `-EINVAL` unless `ctx->user == src_ctx->user` and `ctx->mm_account == src_ctx->mm_account`, because cloned `io_mapped_ubuf` structs share `imu->acct_pages` without re-accounting and unaccount against whichever ring drops the final `imu->refs` in `io_buffer_unmap()`. [F259]
+- For user-registered fixed buffers (`!imu->is_kbuf`), only `imu->bvec[0]` may have a non-zero `bv_offset`, and `io_import_fixed()` / `io_vec_fill_bvec()` must add `bvec->bv_offset` (or `imu->bvec[0].bv_offset`) before shifting by `imu->folio_shift`. [F306]
+- Because `struct iou_vec` aliases `iovec` and `bvec` in one buffer, `io_prep_reg_iovec()` and `io_import_reg_vec()` must right-align `iovec` entries at `vec->iovec + (vec->nr - nr_iovs)` and allocate `nr_iovs` extra slots when `sizeof(struct bio_vec) > sizeof(struct iovec)` so `io_vec_fill_bvec()` / `io_vec_fill_kern_bvec()` do not overwrite unread `iovec`s. [F273]
+- Whenever `io->iter` or `io->meta` is imported or advanced for rw, `io->iter_state` and `io->meta_state` must be saved, and restored via `iov_iter_restore()` and `io_meta_restore()` before advancing on partial read in `__io_read()`, returning `-EAGAIN` in `io_write()`, or reissuing in `io_rw_should_reissue()`. [F265]
+- When issuing an `IORING_SETUP_IOPOLL` request in `io_uring_cmd()` or `io_rw_init_file()`, `req->iopoll_completed` must be reset to `0`, and under `IORING_SETUP_HYBRID_IOPOLL`, `REQ_F_IOPOLL_STATE` must be cleared and `req->iopoll_start` set to `ktime_get_ns()`. [F261]
+- Poll waitqueue entries store `req` in `poll->wait.private` with `IO_WQE_F_DOUBLE` in bit 0, and store single/double `struct io_poll` in `req->cmd`/`req->async_data` for `IORING_OP_POLL_ADD` vs `req->apoll->poll`/`req->apoll->double_poll` for other opcodes; always use `wqe_to_req()` and `io_poll_get_single()`/`io_poll_get_double()`. [F231]
+- `io_poll_parse_events()` must halfword-swap `sqe->poll32_events` with `swahw32()` on `__BIG_ENDIAN`, and `io_poll_remove()` with `update_events` must only replace the low 16 bits (`0xffff`) of `poll->events` to preserve high-word internal flags (`EPOLLONESHOT`, `EPOLLET`, `EPOLLEXCLUSIVE`). [F280]
+- Sequence-based timeout checks in `io_flush_timeouts()` and `io_timeout()` must use unsigned modular differences relative to `ctx->cq_last_tm_flush` (or `tail`, which `io_timeout()` stores into `ctx->cq_last_tm_flush`), never direct `<=` or `>=` comparisons between `seq` and `timeout->target_seq`. [F284]
+- When `io_send()`, `io_recv()`, or `io_recvmsg()` retries after a partial transfer (`ret > 0 && io_net_retry(sock, flags)`), it must call `io_net_kbuf_recyle()` to set `REQ_F_BL_NO_RECYCLE` and, if `REQ_F_BUFFERS_COMMIT` is set, commit consumed buffers via `io_kbuf_commit()` before returning `IOU_RETRY`. [F262]
+- In `io_recv_finish()` for `IORING_RECVSEND_BUNDLE`, `io_put_kbufs()` and `io_bundle_nbufs()` must use incremental `this_ret = sel->val - sr->done_io`, bundle retry requires `!(sr->flags & IORING_RECV_NO_RETRY)` and `!iov_iter_count(&kmsg->msg.msg_iter)`, and `io_mshot_prep_retry()` must reset `sr->done_io`, `sr->len`, and `IORING_RECV_RETRY_CLEAR`. [F263]
+- `io_recvmsg_mshot_prep()` and `io_recvmsg_prep_multishot()` must check `sizeof(struct io_uring_recvmsg_out) + namelen + controllen` for negative `namelen` and integer overflow at prep time, and verify `*len >= hdr` before subtracting `hdr` from `*len`. [F278]
+- In `io_register_zcrx_ifq()` and `io_allocate_rbuf_ring()`, `reg.rq_entries` must be rounded up to a power of two (after checking `IO_RQ_MAX_ENTRIES`), and `rd->size` must be at least `ALIGN(sizeof(struct io_uring), L1_CACHE_BYTES) + sizeof(struct io_uring_zcrx_rqe) * reg->rq_entries`. [F277]
+- `ifq->niov_shift` must be `>= PAGE_SHIFT` and match `pp->p.order + PAGE_SHIFT` in `io_pp_zc_init()` so `niov_pages_shift = area->ifq->niov_shift - PAGE_SHIFT` in `io_zcrx_iov_page()` cannot underflow `unsigned`. [F309]
+
+## Synchronization
+
+- `sqd->lock` nests outside `ctx->uring_lock`: callers holding `ctx->uring_lock` that need `sqd->lock`, `io_sq_thread_park()`, or `io_put_sq_data()` must pin `sqd->refs` if needed, drop `ctx->uring_lock`, acquire `sqd->lock` (or park/put), and then reacquire `ctx->uring_lock`. [F221]
+- `sqd->thread` is an `__rcu` pointer updated under `sqd->lock`: access under `sqd->lock` must use `sqpoll_task_locked(sqd)` and verify it is non-NULL after `io_sq_thread_park()` (`io_sq_offload_create()`, `io_sqpoll_wq_cpu_affinity()`, `io_register_iowq_max_workers()`), while unlocked access requires `rcu_read_lock()`, `rcu_dereference()`, and `get_task_struct()`. [F225, F341]
+- In `io_sq_thread_unpark()`, `clear_bit(IO_SQ_THREAD_SHOULD_PARK, &sqd->state)` must precede `atomic_dec_return(&sqd->park_pending)`, re-setting `IO_SQ_THREAD_SHOULD_PARK` if the decremented `park_pending` is non-zero. [F229]
+- In `io_register_resize_rings()`, swapping `ctx->rings` and `ctx->sq_sqes` requires parking `ctx->sq_data` (with `ctx->uring_lock` dropped) and then holding `ctx->uring_lock`, `ctx->mmap_lock`, and `ctx->completion_lock` in that nesting order. [F224]
+- `ctx->completion_lock` nests outside `ctx->timeout_lock`; paths needing both (`io_kill_timeouts()`, `io_timeout_cancel()`, `io_timeout_remove()`, `io_disarm_next()`) must take `ctx->completion_lock` first. [F334]
+- In `io_register_clone_buffers()` (entered and exited holding `ctx->uring_lock`), when `src_ctx != ctx` it must drop `ctx->uring_lock`, acquire both locks in address order via `lock_two_rings(ctx, src_ctx)`, and unlock only `src_ctx->uring_lock` before `fput(file)`. [F201]
+- `__io_uring_add_tctx_node()` and `io_uring_alloc_task_context()` acquire `ctx->uring_lock` internally; callers holding `ctx->uring_lock` (e.g. `io_ringfd_register()`) must drop it first. [F336]
+- Async wakeup/completion callbacks (`io_poll_wake`, `io_waitid_wait`, `io_async_buf_func`, `io_timeout_fn`, `io_link_timeout_fn`, `io_complete_rw`, `io_tx_ubuf_complete`) run in atomic/IRQ/waitqueue-locked context and must defer user copies, `vfs_poll()`, `__do_wait()`, and `ctx->uring_lock` to `task_work`. [F330]
+
+## Object Lifetimes
+
+- In `io_send_select_buffer()` and `io_recv_buf_select()`, if `io_buffers_select()` or `io_buffers_peek()` dynamically allocates `arg.iovs` (`arg.iovs != &kmsg->fast_iov && arg.iovs != kmsg->vec.iovec`), it must be saved in `kmsg->vec` with `REQ_F_NEED_CLEANUP` set on `req->flags` before branching on `ret == 1`. [F193]
+- When `io_send_zc()` or `io_sendmsg_zc()` flushes `zc->notif` inline (`!(issue_flags & IO_URING_F_UNLOCKED)`), it must set `zc->notif = NULL` so `io_send_zc_cleanup()` does not double-flush; when `IO_URING_F_UNLOCKED` is set, it must leave `zc->notif` for `io_send_zc_cleanup()`. [F194]
+- Because `io_uring_cmd_prep()` points `ioucmd->sqe` at the shared ring SQE, `io_uring_cmd_sqe_copy()` must copy `uring_sqe_size(req->ctx)` bytes into `ac->sqes` and redirect `ioucmd->sqe = ac->sqes` before async deferral, and `io_req_uring_cleanup()` must clear `ioucmd->sqe = NULL` when caching `ac`. [F256]
+- Before returning `io_async_rw`, `io_async_msghdr`, or `io_async_cmd` to its `io_alloc_cache` via `io_alloc_cache_put()`, callers must call `io_alloc_cache_vec_kasan(&...->vec)` because `io_alloc_cache_get()` zeroes `init_clear` bytes under `CONFIG_KASAN`. [F316]
+- When `io_kiocb_start_write()` takes superblock write protection (`REQ_F_ISREG` with `IOCB_WRITE` on `rw->kiocb.ki_flags`), every completion, retry, and error path (`io_req_io_end()`, `io_complete_rw_iopoll()`, `io_write()`) must release it via `io_req_end_write()`. [F349]
+- In `io_release_ubuf()` and the `io_sqe_buffer_register()` error path, pinned pages must be released individually via `unpin_user_folio(page_folio(page), 1)` because `io_coalesce_buffer()` coalesces compound pages into folio heads and drops tail references. [F350]
+
+## API Contracts
+
+- Blocking-only opcodes (`io_sync_file_range`, `io_fsync`, `io_fallocate`, `io_splice`, `io_tee`, `io_statx`, `io_ftruncate`, `*xattr`, `io_shutdown`, and `io_openat2` when `O_TRUNC | O_CREAT | __O_TMPFILE` is set; note `__O_TMPFILE` must be tested rather than `O_TMPFILE`) must set `REQ_F_FORCE_ASYNC` in `.prep`. [F290, F329]
+- When `__io_arm_poll_handler()` returns `0`, poll ownership is with the waitqueue and the caller must not touch `req`; `ipt->result_mask` is valid only when `__io_arm_poll_handler()` returns `> 0`. [F230]
+- `struct io_br_sel` unions `void __user *addr` with `ssize_t val`: `io_uring_cmd_buffer_select()` can return a negative errno in `sel.val` (so callers must check `sel.val < 0`, not just `!sel.addr`), and any selected buffer must be passed in the same submission context to `io_uring_mshot_cmd_post_cqe()` with the transfer byte count or negative errno in `sel->val` so it is committed via `io_put_kbuf()` or recycled via `io_kbuf_recycle()`. [F206, F247]
+- In `__io_uring_cmd_done()`, `io_req_complete_defer()` is only valid when `IO_URING_F_COMPLETE_DEFER` is set and `IO_URING_F_UNLOCKED` is clear in `issue_flags`; otherwise non-IOPOLL completions must use `io_req_task_work_add()`. [F328]
+- Batch resource update/refill functions (`__io_sqe_files_update`, `__io_sqe_buffers_update`, `io_files_update_with_index_alloc`, `io_ringfd_register`, `io_zcrx_return_bufs`) must return the positive count of committed entries if any succeeded, rolling back the uncommitted slot if `copy_to_user()` fails. [F238]
+- `__io_fixed_fd_install()`, `io_fixed_fd_install()`, and `io_close_fixed()` take 1-based `file_slot` indices (or `IORING_FILE_INDEX_ALLOC`), whereas `io_fixed_fd_remove()`, `__io_close_fixed()`, and `io_rsrc_node_lookup()` take 0-based table offsets. [F274]
+- Destructors passed to `io_alloc_cache_free()` (`io_rw_cache_free`, `io_netmsg_cache_free`, `io_cmd_cache_free`) must have the exact signature `void (*)(const void *)` matching `kfree()` to avoid kCFI failures. [F317]
+
+## Error Handling
+
+- Because `req->cmd.data` is not zeroed when `io_kiocb` is recycled and `io_req_defer_failed()` calls `io_sendrecv_fail()` on `.prep` failure, `io_sendmsg_prep()`, `io_recvmsg_prep()`, and `io_send_zc_prep()` must set `sr->done_io = 0` before any early error return. [F240]
+- Synchronous VFS and socket calls in `.issue` handlers must translate `-ERESTARTSYS` (and `-ERESTART*` in `io_rw_done()`) to `-EINTR` before completing, whereas `io_waitid()` and `io_waitid_cb()` must treat `-ERESTARTSYS` from `__do_wait()` as an armed wait, not an error. [F249]
+- In `io_poll_check_events()` and `io_recvzc()`, `ret == IOU_REQUEUE` (`-3072`) must be checked before any `ret < 0` error branch, converting it to `IOU_POLL_REQUEUE` in `io_poll_check_events()` or returning `IOU_REQUEUE` in `io_recvzc()`. [F289]
+
+## External Contracts
+
+- `io_install_fixed_fd_prep()` must reject `REQ_F_CREDS` with `-EPERM` and require `REQ_F_FIXED_FILE` (`-EBADF` otherwise) before `io_install_fixed_fd()` installs the file via `receive_fd()`. [F361]
+- In `io_recv_finish()` and `io_recv_buf_select()`, `kmsg->msg.msg_inq` must be checked for `> 1` (not `> 0`) when deciding to retry a bundle receive or cap `arg.max_len` for `io_buffers_peek()`, whereas `IORING_CQE_F_SOCK_NONEMPTY` checks `msg_inq > 0`. [F351]
+- In `io_import_area()` and `io_import_dmabuf()`, zcrx areas must pass `io_validate_user_buf_range()` and `PAGE_MASK` alignment on `addr` and `len`, and `IORING_ZCRX_AREA_DMABUF` must reject non-zero `area_reg->addr` and require `area_reg->len` to match the mapped scatterlist `total_size`. [F270]
+
+## Known Pitfalls
+
+- Because `__io_import_rw_buffer()` overwrites `rw->len = sqe_len`, `io_read_mshot()` must reset `rw->len = 0` both when `io_kbuf_recycle()` recycles on `-EAGAIN` and after `io_put_kbuf()` on a posted multishot CQE. [F264]
+- Because `__sys_sendmsg_sock()` overwrites `kmsg->msg.msg_control_user`, `io_sendmsg_setup()` must save it in `sr->msg_control`, and `io_sendmsg()` / `io_sendmsg_zc()` must restore `kmsg->msg.msg_control_user = sr->msg_control` before each call (while `io_sendmsg()` clears `msg_controllen` and `msg_control` after a partial send). [F267]
+- In `io_sqe_buffer_register()`, when `coalesced == true`, `imu->bvec[0]`'s initial offset `off` must be `((unsigned long)iov->iov_base & ~PAGE_MASK) + (data.first_folio_page_idx << PAGE_SHIFT)` rather than masking `iov->iov_base` with the folio size mask. [F271]
+- In `io_copy_page()` (`zcrx.c`), when `folio_test_partial_kmap()` is true on source or destination, page pointers and offsets must be normalized to `PAGE_SIZE` subpages and chunk length `n` clamped to `PAGE_SIZE` boundaries before `kmap_local_page()`, `kunmap_local()` must run in reverse order, and every loop iteration must advance `src_offset += n` alongside `cc->offset`, `cc->size`, `len`, and `copied`. [F285, F345]
+- In `io_timeout_extract()` and `io_linked_timeout_update()`, `list_for_each_entry(timeout, ...)` must record a match in a separate pointer `req = tmp` initialized to `NULL` and check `if (!req)` after the loop rather than inspecting the loop cursor `timeout`. [F294]
+- `io_register_iowq_aff()` must clamp `len` to `cpumask_size()` and, when `in_compat_syscall()` is true, copy via `compat_get_bitmap(cpumask_bits(new_mask), arg, len * 8)` instead of `copy_from_user()`. [F325]
