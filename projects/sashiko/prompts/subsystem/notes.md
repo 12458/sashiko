@@ -109,9 +109,13 @@ bugs:
   whose `revision` is a git ancestor of the patch baseline (`git merge-base
   --is-ancestor`), falling back to the oldest set only when none is an ancestor.
 - **Cross-unit symbol bounding (`select_symbol_notes`)**: Symbol-based cross-unit
-  note loading must ignore common symbols (`MAX_SYMBOL_UNIT_FREQ`) and
-  non-specific single-word tokens (`is_specific_symbol`) and focus injected
-  notes down to only the bullets whose subject names the matched symbols.
+  note loading must ignore common symbols (`MAX_UNITS_PER_SYMBOL` counted by
+  parent unit `unit_group`) and non-specific single-word tokens
+  (`is_cross_unit_symbol`), focus sibling components of touched multi-component
+  units down to bullets naming touched identifiers (`focus_note`), and focus
+  foreign units down to only the bullets whose subject names the matched
+  symbols (`focus_symbol_note`). Note size is bounded at generation time
+  (`unit_note_bytes`), not by an injection-time byte cap.
 - **Sidecar exclusion (`build.rs`)**: `.facts.json` audit sidecars must never be
   embedded into the compiled prompt bundle in `build.rs` or committed to git.
 

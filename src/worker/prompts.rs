@@ -97,7 +97,6 @@ async fn select_code_notes(
     prompts_dir: &std::path::Path,
     baseline: &str,
     diff: &str,
-    max_bytes: usize,
     scope: CodeNotesScope,
 ) -> String {
     let sets = crate::notes::select::load_sets(prompts_dir);
@@ -113,14 +112,13 @@ async fn select_code_notes(
         }
     };
     let files = crate::baseline::extract_files_from_diff(diff);
+    let specific = crate::notes::select::diff_identifiers(diff);
     let identifiers = match scope {
         CodeNotesScope::Unit => None,
-        CodeNotesScope::Touched => Some(crate::notes::select::diff_identifiers(diff)),
+        CodeNotesScope::Touched => Some(&specific),
     };
-    let mut notes =
-        crate::notes::select::select_notes(set, &files, identifiers.as_ref(), max_bytes);
-    let specific = crate::notes::select::diff_identifiers(diff);
-    let symbol_notes = crate::notes::select::select_symbol_notes(set, &specific, &notes, max_bytes);
+    let mut notes = crate::notes::select::select_notes(set, &files, identifiers);
+    let symbol_notes = crate::notes::select::select_symbol_notes(set, &specific, &notes);
     notes.extend(symbol_notes);
     tracing::info!(
         "code notes: set {} for {} touched file(s): {:?}",
@@ -172,9 +170,8 @@ pub struct WorkerConfig {
     pub skip_report: bool,
     pub report_preexisting: bool,
     pub effort: Option<crate::ai::EffortMode>,
-    /// Byte budget of code notes to load into the review; `None` disables
-    /// code notes.
-    pub code_notes_bytes: Option<usize>,
+    /// Whether to load code notes into the review.
+    pub use_code_notes: bool,
     /// How much of each selected unit note the review gets.
     pub code_notes_scope: CodeNotesScope,
 }
@@ -260,7 +257,7 @@ pub struct Worker {
     skip_report: bool,
     report_preexisting: bool,
     effort: Option<crate::ai::EffortMode>,
-    code_notes_bytes: Option<usize>,
+    use_code_notes: bool,
     code_notes_scope: CodeNotesScope,
 }
 
@@ -287,7 +284,7 @@ impl Worker {
             skip_report: config.skip_report,
             report_preexisting: config.report_preexisting,
             effort: config.effort,
-            code_notes_bytes: config.code_notes_bytes,
+            use_code_notes: config.use_code_notes,
             code_notes_scope: config.code_notes_scope,
         }
     }
@@ -424,19 +421,17 @@ impl Worker {
             ),
         };
 
-        let code_notes = match self.code_notes_bytes {
-            Some(max_bytes) => {
-                select_code_notes(
-                    worktree_path,
-                    &self.prompts.base_dir,
-                    &baseline_sha,
-                    &target_commit_diff_only,
-                    max_bytes,
-                    self.code_notes_scope,
-                )
-                .await
-            }
-            None => String::new(),
+        let code_notes = if self.use_code_notes {
+            select_code_notes(
+                worktree_path,
+                &self.prompts.base_dir,
+                &baseline_sha,
+                &target_commit_diff_only,
+                self.code_notes_scope,
+            )
+            .await
+        } else {
+            String::new()
         };
         let maintainer_notes =
             select_maintainer_notes(&self.prompts.base_dir, &target_commit_diff_only);
@@ -1160,7 +1155,7 @@ mod tests {
             skip_report: false,
             report_preexisting: false,
             effort: None,
-            code_notes_bytes: None,
+            use_code_notes: false,
             code_notes_scope: Default::default(),
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
@@ -1273,7 +1268,7 @@ mod tests {
             skip_report: false,
             report_preexisting: false,
             effort: None,
-            code_notes_bytes: None,
+            use_code_notes: false,
             code_notes_scope: Default::default(),
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
@@ -1313,7 +1308,7 @@ mod tests {
             skip_report: false,
             report_preexisting: false,
             effort: None,
-            code_notes_bytes: None,
+            use_code_notes: false,
             code_notes_scope: Default::default(),
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
@@ -1357,7 +1352,7 @@ mod tests {
             skip_report: false,
             report_preexisting: false,
             effort: None,
-            code_notes_bytes: None,
+            use_code_notes: false,
             code_notes_scope: Default::default(),
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
@@ -1462,7 +1457,7 @@ mod tests {
             skip_report: false,
             report_preexisting: false,
             effort: None,
-            code_notes_bytes: None,
+            use_code_notes: false,
             code_notes_scope: Default::default(),
         };
         let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
@@ -1649,7 +1644,7 @@ mod tests {
                 skip_report: true,
                 report_preexisting: false,
                 effort: None,
-                code_notes_bytes: None,
+                use_code_notes: false,
                 code_notes_scope: Default::default(),
             };
             let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
@@ -1752,7 +1747,7 @@ mod tests {
                 skip_report: false,
                 report_preexisting: false,
                 effort: None,
-                code_notes_bytes: None,
+                use_code_notes: false,
                 code_notes_scope: Default::default(),
             },
         );
@@ -1786,7 +1781,7 @@ mod tests {
                 skip_report: false,
                 report_preexisting: true,
                 effort: None,
-                code_notes_bytes: None,
+                use_code_notes: false,
                 code_notes_scope: Default::default(),
             },
         );

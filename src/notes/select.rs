@@ -20,8 +20,8 @@
 //! never reads notes describing code newer than what the patch was written
 //! against; when no set is an ancestor (an old or diverged baseline) it uses
 //! the oldest set. Within the set, units are chosen deterministically from
-//! the files the patch touches, and their notes are inlined up to a byte
-//! budget.
+//! the files and symbols the patch touches, and their notes are inlined
+//! without an injection-time byte cap (size is bounded at generation time).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -147,22 +147,27 @@ pub struct SelectedNote {
     pub reason: NoteReason,
 }
 
-/// Units chosen for the symbols a patch uses, beyond those for its files.
-const MAX_SYMBOL_UNITS: usize = 3;
-/// A symbol ties a patch to a unit only when at most this many units'
-/// facts are about it; common helpers would otherwise pull in arbitrary
-/// units.
+/// A symbol ties a patch to a foreign unit only when at most this many
+/// distinct parent units' facts are about it; common helpers would otherwise
+/// pull in arbitrary units.
 const MAX_UNITS_PER_SYMBOL: usize = 3;
 
-/// Picks the unit notes for `touched_files`, most relevant first, within
-/// `max_bytes`. A unit is relevant when it covers a touched file; a touched
-/// file no unit covers (for example a new file) goes to the unit sharing
-/// the longest directory prefix with it. Notes that do not fit are skipped.
+/// Returns the parent unit slug for a manifest entry (`<unit>--<component>`
+/// returns `<unit>`). Sibling components of a multi-component ownership
+/// unit share a group so cross-unit symbol rarity counts distinct units
+/// rather than penalizing symbols shared across components of one subsystem.
+fn unit_group(slug: &str) -> &str {
+    slug.split_once("--").map_or(slug, |(u, _)| u)
+}
+
+/// Picks the unit notes for `touched_files`, most relevant first. A unit is
+/// relevant when it covers a touched file; a touched file no unit covers
+/// (for example a new file) goes to the unit sharing the longest directory
+/// prefix with it.
 pub fn select_notes(
     set: &NotesSet,
     touched_files: &[String],
     focus: Option<&HashSet<String>>,
-    max_bytes: usize,
 ) -> Vec<SelectedNote> {
     let mut covered: HashMap<&str, &str> = HashMap::new();
     for (slug, unit) in &set.manifest.units {
@@ -183,7 +188,6 @@ pub fn select_notes(
     let mut ranked: Vec<(&str, usize)> = score.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
 
-    let mut used = 0usize;
     let mut out = Vec::new();
     for (slug, _) in ranked {
         let Some(unit) = set.manifest.units.get(slug) else {
@@ -201,10 +205,6 @@ pub fn select_notes(
                 None => continue,
             },
         };
-        if used + text.len() > max_bytes {
-            continue;
-        }
-        used += text.len();
         out.push(SelectedNote {
             unit: unit.name.clone(),
             text,
@@ -214,44 +214,78 @@ pub fn select_notes(
     out
 }
 
-/// Picks up to MAX_SYMBOL_UNITS more unit notes for the cross-unit API
-/// symbols a patch uses (see diff_identifiers), skipping units already
-/// chosen. A unit scores one point per rare API symbol in its manifest that
-/// appears as a subject of one of its note rules; each chosen note keeps
-/// only the rules whose subject names one of that unit's matched symbols,
-/// within what is left of `max_bytes`.
+/// Picks additional unit notes for the symbols a patch uses (see
+/// `diff_identifiers`), skipping units already chosen:
+/// 1. For any sibling component sharing a parent unit (`<unit>--<comp>`) with
+///    a unit chosen for `TouchedFiles`, keeps any rules naming a touched
+///    identifier (`focus_note`).
+/// 2. For foreign units, a unit scores one point per rare API symbol in its
+///    manifest (`<= MAX_UNITS_PER_SYMBOL` distinct parent units) that appears
+///    as a subject of one of its note rules; each chosen note keeps only the
+///    rules whose subject names one of that unit's matched symbols.
 pub fn select_symbol_notes(
     set: &NotesSet,
     identifiers: &HashSet<String>,
     chosen: &[SelectedNote],
-    max_bytes: usize,
 ) -> Vec<SelectedNote> {
+    let chosen_names: HashSet<&str> = chosen.iter().map(|n| n.unit.as_str()).collect();
+    let touched_groups: HashSet<&str> = set
+        .manifest
+        .units
+        .iter()
+        .filter(|(slug, u)| {
+            slug.contains("--")
+                && chosen
+                    .iter()
+                    .any(|n| n.reason == NoteReason::TouchedFiles && n.unit == u.name)
+        })
+        .map(|(slug, _)| unit_group(slug))
+        .collect();
+
     let mut owners: HashMap<&str, Vec<&str>> = HashMap::new();
-    let mut note_freq: HashMap<String, usize> = HashMap::new();
+    let mut owner_groups: HashMap<&str, HashSet<&str>> = HashMap::new();
+    let mut note_freq_groups: HashMap<String, HashSet<&str>> = HashMap::new();
     let mut unit_texts: HashMap<&str, String> = HashMap::new();
     for (slug, unit) in &set.manifest.units {
+        let group = unit_group(slug);
         for symbol in &unit.symbols {
             if identifiers.contains(symbol) && is_cross_unit_symbol(symbol) {
                 owners
                     .entry(symbol.as_str())
                     .or_default()
                     .push(slug.as_str());
+                owner_groups
+                    .entry(symbol.as_str())
+                    .or_default()
+                    .insert(group);
             }
         }
         if let Ok(raw) = std::fs::read_to_string(set.dir.join(&unit.note)) {
             let text = strip_citations(&raw);
+            let is_sibling = touched_groups.contains(group);
             for sym in note_api_symbols(&text) {
-                *note_freq.entry(sym).or_default() += 1;
+                if is_sibling && let Some(ident) = identifiers.get(sym.as_str()) {
+                    let list = owners.entry(ident.as_str()).or_default();
+                    if !list.contains(&slug.as_str()) {
+                        list.push(slug.as_str());
+                    }
+                    owner_groups
+                        .entry(ident.as_str())
+                        .or_default()
+                        .insert(group);
+                }
+                note_freq_groups.entry(sym).or_default().insert(group);
             }
             unit_texts.insert(slug.as_str(), text);
         }
     }
 
+    let mut out = Vec::new();
     let mut matched_by_unit: BTreeMap<&str, HashSet<String>> = BTreeMap::new();
     for (sym, slugs) in &owners {
-        if slugs.len() <= MAX_UNITS_PER_SYMBOL
-            && note_freq.get(*sym).copied().unwrap_or(0) <= MAX_UNITS_PER_SYMBOL
-        {
+        let groups = owner_groups.get(*sym).map_or(0, HashSet::len);
+        let freq = note_freq_groups.get(*sym).map_or(0, HashSet::len);
+        if groups <= MAX_UNITS_PER_SYMBOL && freq <= MAX_UNITS_PER_SYMBOL {
             for &slug in slugs {
                 matched_by_unit
                     .entry(slug)
@@ -266,7 +300,7 @@ pub fn select_symbol_notes(
         let Some(unit) = set.manifest.units.get(slug) else {
             continue;
         };
-        if chosen.iter().any(|n| n.unit == unit.name) {
+        if chosen_names.contains(unit.name.as_str()) {
             continue;
         }
         let Some(raw_text) = unit_texts.get(slug) else {
@@ -277,21 +311,16 @@ pub fn select_symbol_notes(
         };
         candidates.push((slug, hit_count, focused));
     }
-    candidates.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    candidates.sort_by(|a, b| {
+        let a_sib = touched_groups.contains(unit_group(a.0));
+        let b_sib = touched_groups.contains(unit_group(b.0));
+        b_sib.cmp(&a_sib).then(b.1.cmp(&a.1)).then(a.0.cmp(b.0))
+    });
 
-    let mut used: usize = chosen.iter().map(|n| n.text.len()).sum();
-    let mut out = Vec::new();
     for (slug, _, text) in candidates {
-        if out.len() == MAX_SYMBOL_UNITS {
-            break;
-        }
         let Some(unit) = set.manifest.units.get(slug) else {
             continue;
         };
-        if used + text.len() > max_bytes {
-            continue;
-        }
-        used += text.len();
         out.push(SelectedNote {
             unit: unit.name.clone(),
             text,
@@ -411,13 +440,20 @@ fn is_cross_unit_symbol(word: &str) -> bool {
 /// Bare lowercase variable or field names (`ring_size`, `a->b`) are ignored.
 fn api_span_symbols(span: &str) -> Vec<String> {
     let mut s = span.trim();
-    while let Some(rest) = s
-        .strip_prefix("const ")
-        .or_else(|| s.strip_prefix("struct "))
-        .or_else(|| s.strip_prefix("enum "))
-        .or_else(|| s.strip_prefix("union "))
-    {
-        s = rest.trim();
+    let mut has_type_kw = false;
+    loop {
+        if let Some(rest) = s.strip_prefix("const ") {
+            s = rest.trim();
+        } else if let Some(rest) = s
+            .strip_prefix("struct ")
+            .or_else(|| s.strip_prefix("enum "))
+            .or_else(|| s.strip_prefix("union "))
+        {
+            has_type_kw = true;
+            s = rest.trim();
+        } else {
+            break;
+        }
     }
     let has_call = s.contains('(');
     let head = s
@@ -443,7 +479,8 @@ fn api_span_symbols(span: &str) -> Vec<String> {
         .bytes()
         .filter(|b| b.is_ascii_alphabetic())
         .all(|b| b.is_ascii_lowercase());
-    if all_lower && !has_call && !head.ends_with("_t") {
+    let multi_part_fn = head.len() >= 10 && head.split('_').filter(|p| !p.is_empty()).count() >= 3;
+    if all_lower && !has_call && !has_type_kw && !head.ends_with("_t") && !multi_part_fn {
         return Vec::new();
     }
     vec![head.to_string()]
@@ -463,13 +500,92 @@ fn note_api_symbols(note: &str) -> HashSet<String> {
     out
 }
 
-/// Extracts the leading subject code spans of a clause (skipping file/function
-/// location clauses starting with `In `, `Within `, or `On `).
+/// Returns whether a code span names a source file path rather than a symbol.
+fn is_file_span(span: &str) -> bool {
+    let s = span.trim();
+    s.contains('/')
+        || s.ends_with(".c")
+        || s.ends_with(".h")
+        || s.ends_with(".rs")
+        || s.ends_with(".S")
+        || s.ends_with(".s")
+}
+
+/// Strips an optional leading ` (`path/to/file`)` annotation after a code span.
+fn strip_paren_span(s: &str) -> &str {
+    let trimmed = s.trim_start();
+    if let Some(after_open) = trimmed.strip_prefix("(`")
+        && let Some(end) = after_open.find("`)")
+    {
+        return &after_open[end + 2..];
+    }
+    s
+}
+
+/// Extracts the leading subject code spans of a clause.
+///
+/// Handles:
+/// - Topic prefix labels (`Topic label (`optional/file.c`): `sym()`...`)
+/// - File location prefixes (`In `path/to/file.c`, `sym()`...`), advancing
+///   past the file location to extract the subject spans of the main clause
+/// - Function/type location prefixes (`In `func()`, ...`), extracting `func()`
+///   (and any `and`/`or`-coordinated spans) without crossing `, ` into the body
 fn clause_subject_spans(clause: &str) -> Vec<&str> {
-    let rest = clause.trim();
+    let mut rest = clause.trim();
+    if !rest.starts_with('`')
+        && let Some(colon_tick) = rest.find(": `")
+        && colon_tick <= 60
+    {
+        rest = rest[colon_tick + 2..].trim_start();
+    }
     for loc_prefix in ["In ", "in ", "Within ", "within ", "On ", "on "] {
-        if rest.starts_with(loc_prefix) {
-            return Vec::new();
+        if let Some(after_p) = rest.strip_prefix(loc_prefix) {
+            let after_p = after_p.trim_start();
+            let Some(after_open) = after_p.strip_prefix('`') else {
+                return Vec::new();
+            };
+            let Some(end) = after_open.find('`') else {
+                return Vec::new();
+            };
+            let first_span = &after_open[..end];
+            let mut tail = strip_paren_span(&after_open[end + 1..]);
+            if is_file_span(first_span) {
+                while let Some(next_open) = [", or `", ", and `", ", `", " and `", " or `"]
+                    .into_iter()
+                    .find_map(|sep| tail.strip_prefix(sep))
+                {
+                    let Some(next_end) = next_open.find('`') else {
+                        return Vec::new();
+                    };
+                    if !is_file_span(&next_open[..next_end]) {
+                        break;
+                    }
+                    tail = strip_paren_span(&next_open[next_end + 1..]);
+                }
+                let trimmed = tail.trim_start();
+                let Some(after_punct) = trimmed
+                    .strip_prefix(',')
+                    .or_else(|| trimmed.strip_prefix(':'))
+                else {
+                    return Vec::new();
+                };
+                rest = after_punct.trim_start();
+                break;
+            } else {
+                let mut spans = vec![first_span];
+                let mut cursor = tail;
+                while let Some(next_open) = [" and `", " or `", " / `"]
+                    .into_iter()
+                    .find_map(|sep| cursor.strip_prefix(sep))
+                {
+                    let Some(next_end) = next_open.find('`') else {
+                        break;
+                    };
+                    spans.push(&next_open[..next_end]);
+                    cursor = strip_paren_span(&next_open[next_end + 1..]);
+                }
+                return spans;
+            }
         }
     }
     let Some(first_tick) = rest.find('`') else {
@@ -485,7 +601,7 @@ fn clause_subject_spans(clause: &str) -> Vec<&str> {
             break;
         };
         spans.push(&after_open[..end]);
-        let after = &after_open[end + 1..];
+        let after = strip_paren_span(&after_open[end + 1..]);
         let sep = [", or ", ", and ", ", ", " and ", " or ", " / "]
             .into_iter()
             .find_map(|s| after.strip_prefix(s));
@@ -500,9 +616,6 @@ fn clause_subject_spans(clause: &str) -> Vec<&str> {
 /// Extracts the subject API symbols that a bullet rule is directly about.
 fn bullet_subject_symbols(line: &str) -> HashSet<String> {
     let rest = line.strip_prefix("- ").unwrap_or(line).trim();
-    if rest.starts_with("In `") || rest.starts_with("Within `") {
-        return HashSet::new();
-    }
     let mut out = HashSet::new();
     for clause in CLAUSE_SEP.split(rest) {
         for span in clause_subject_spans(clause) {
@@ -551,16 +664,25 @@ fn focus_symbol_note(note: &str, matched_symbols: &HashSet<String>) -> Option<(S
     (!hit_symbols.is_empty()).then_some((out, hit_symbols.len()))
 }
 
-/// The specific identifiers a diff touches: those on its added and removed
-/// lines and in its hunk headers (which name the enclosing function).
+/// The specific identifiers a diff touches: those on its added, removed, and
+/// hunk-context lines and in its hunk headers (which name the enclosing
+/// function).
 pub fn diff_identifiers(diff: &str) -> HashSet<String> {
     let mut out = HashSet::new();
+    let mut in_hunk = false;
     for line in diff.lines() {
-        let text = if line.starts_with("+++") || line.starts_with("---") {
+        let text = if line.starts_with("diff --git ")
+            || line.starts_with("+++")
+            || line.starts_with("---")
+        {
+            in_hunk = false;
             continue;
         } else if let Some(rest) = line.strip_prefix("@@") {
+            in_hunk = true;
             rest.split_once("@@").map_or("", |(_, context)| context)
         } else if let Some(rest) = line.strip_prefix(['+', '-']) {
+            rest
+        } else if in_hunk && let Some(rest) = line.strip_prefix(' ') {
             rest
         } else {
             continue;
@@ -630,7 +752,7 @@ pub fn render_block(set: &NotesSet, notes: &[SelectedNote]) -> String {
         return String::new();
     }
     let mut block = format!(
-        "\n\n<code_notes set=\"{}\" revision=\"{}\">\nThese notes were built by reading and verifying the code of the units this patch touches, at the revision above. Use them to understand invariants, contracts and known pitfalls the patch must respect. They describe the code at that revision: if the patch, or code between that revision and the baseline, changed something a note describes, trust the current code.\n",
+        "\n\n<code_notes set=\"{}\" revision=\"{}\">\nThese notes were built by reading and verifying the code of the units this patch touches, at the revision above. Use them to understand invariants, contracts and known pitfalls the patch must respect. They describe the code at that revision: if the patch, or code between that revision and the baseline, changed something a note describes, or if a rule depends on a precondition or safe exception satisfied by the caller, trust the current code.\n",
         set.manifest.set, set.manifest.revision
     );
     for note in notes {
@@ -768,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_notes_by_touched_files_and_budget() {
+    fn test_select_notes_by_touched_files() {
         let prompts = tempfile::tempdir().unwrap();
         write_set(
             prompts.path(),
@@ -799,18 +921,18 @@ mod tests {
             "mm/slab.c".to_string(),
             "drivers/x.c".to_string(),
         ];
-        let notes = select_notes(set, &touched, None, 200);
+        let notes = select_notes(set, &touched, None);
         let units: Vec<&str> = notes.iter().map(|n| n.unit.as_str()).collect();
-        // net covers two touched files (one by directory), mm one; big does
-        // not fit the budget.
-        assert_eq!(units, vec!["net", "mm"]);
+        // net covers two touched files (one by directory), big and mm one each;
+        // all touched units are included without an injection-time byte cap.
+        assert_eq!(units, vec!["net", "big", "mm"]);
         assert_eq!(notes[0].text, "# net\n- Hold the lock.\n");
 
         let block = render_block(set, &notes);
         assert!(block.contains("<code_notes set=\"s\" revision=\"r\">"));
         assert!(block.contains("<unit_note unit=\"mm\" reason=\"touched files\">"));
         assert!(render_block(set, &[]).is_empty());
-        assert!(select_notes(set, &["docs/x.rst".to_string()], None, 1000).is_empty());
+        assert!(select_notes(set, &["docs/x.rst".to_string()], None).is_empty());
     }
 
     #[test]
@@ -823,10 +945,19 @@ mod tests {
             "r",
             &[
                 (
-                    "net",
-                    "net",
+                    "net — core",
+                    "net--core",
                     &["net/core/dev.c"],
-                    &note("net", "- `netif_rx()` defers. [F1]\n"),
+                    &note("net — core", "- `netif_rx()` defers. [F1]\n"),
+                ),
+                (
+                    "net — sock",
+                    "net--sock",
+                    &["net/core/sock.c"],
+                    &note(
+                        "net — sock",
+                        "- In `net/core/sock.c`, `sk_common_release()` frees `sk_prot`. [F5]\n- `unrelated_sock_fn()` locks. [F6]\n",
+                    ),
                 ),
                 (
                     "lock",
@@ -834,14 +965,17 @@ mod tests {
                     &["kernel/locking/spinlock.c"],
                     &note(
                         "lock",
-                        "- `spin_lock_irqsave()` saves flags. [F2]\n- `mutex_lock()` sleeps. [F3]\n",
+                        "- In `kernel/locking/spinlock.c`, `spin_lock_irqsave()` saves flags. [F2]\n- `mutex_lock()` sleeps. [F3]\n",
                     ),
                 ),
                 (
                     "mm",
                     "mm",
                     &["mm/slab.c"],
-                    &note("mm", "- `kfree_bulk()` frees. [F4]\n"),
+                    &note(
+                        "mm",
+                        "- Slab freeing (`mm/slab.c`): `kfree_bulk()` frees. [F4]\n",
+                    ),
                 ),
             ],
         );
@@ -850,7 +984,8 @@ mod tests {
             set.manifest.units.get_mut(slug).unwrap().symbols =
                 syms.iter().map(|s| s.to_string()).collect();
         };
-        symbols(&mut set, "net", &["netif_rx", "kfree_skb"]);
+        symbols(&mut set, "net--core", &["netif_rx", "kfree_skb"]);
+        symbols(&mut set, "net--sock", &["kfree_skb"]);
         symbols(
             &mut set,
             "lock",
@@ -858,28 +993,34 @@ mod tests {
         );
         symbols(&mut set, "mm", &["kfree_bulk", "kfree_skb"]);
 
-        let ids: HashSet<String> = ["spin_lock_irqsave", "kfree_bulk"]
+        let ids: HashSet<String> = ["spin_lock_irqsave", "kfree_bulk", "sk_common_release"]
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let chosen = select_notes(&set, &["net/core/dev.c".to_string()], None, 10_000);
-        let extra = select_symbol_notes(&set, &ids, &chosen, 10_000);
+        let chosen = select_notes(&set, &["net/core/dev.c".to_string()], None);
+        let extra = select_symbol_notes(&set, &ids, &chosen);
         let units: Vec<&str> = extra.iter().map(|n| n.unit.as_str()).collect();
-        assert_eq!(units, vec!["lock", "mm"]);
+        assert_eq!(units, vec!["net — sock", "lock", "mm"]);
         assert!(extra.iter().all(|n| n.reason == NoteReason::UsedSymbols));
+        // Sibling component net--sock is focused by subject symbol sk_common_release.
+        assert!(
+            extra[0].text.contains("sk_common_release")
+                && !extra[0].text.contains("unrelated_sock_fn")
+        );
         // Only the rules naming a used identifier are kept.
         assert!(
-            extra[0].text.contains("spin_lock_irqsave") && !extra[0].text.contains("mutex_lock")
+            extra[1].text.contains("spin_lock_irqsave") && !extra[1].text.contains("mutex_lock")
         );
 
         // A unit already chosen for its files is not chosen again.
         let ids = HashSet::from(["netif_rx".to_string()]);
-        assert!(select_symbol_notes(&set, &ids, &chosen, 10_000).is_empty());
+        assert!(select_symbol_notes(&set, &ids, &chosen).is_empty());
 
-        // A symbol shared by more than MAX_UNITS_PER_SYMBOL units ties the
-        // patch to none of them.
+        // A symbol shared by more than MAX_UNITS_PER_SYMBOL distinct parent
+        // units ties the patch to none of them (whereas sibling components
+        // net--core and net--sock count as one parent unit "net").
         let mut shared = set.clone();
-        for slug in ["net", "lock", "mm"] {
+        for slug in ["net--core", "net--sock", "lock", "mm"] {
             shared
                 .manifest
                 .units
@@ -892,7 +1033,7 @@ mod tests {
         fourth.name = "fourth".to_string();
         shared.manifest.units.insert("fourth".to_string(), fourth);
         let ids = HashSet::from(["common_helper".to_string()]);
-        assert!(select_symbol_notes(&shared, &ids, &[], 10_000).is_empty());
+        assert!(select_symbol_notes(&shared, &ids, &[]).is_empty());
     }
 
     #[test]
@@ -961,7 +1102,7 @@ mod tests {
         .into_iter()
         .map(str::to_string)
         .collect();
-        let extra = select_symbol_notes(&set, &ids, &[], 10_000);
+        let extra = select_symbol_notes(&set, &ids, &[]);
         assert_eq!(extra.len(), 1);
         assert_eq!(extra[0].unit, "sysfs");
         assert!(extra[0].text.contains("sysfs_emit()"));

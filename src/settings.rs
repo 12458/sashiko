@@ -974,9 +974,6 @@ pub struct ReviewSettings {
     /// it reads itself.
     #[serde(default = "default_true")]
     pub use_code_notes: bool,
-    /// Byte budget of the code notes inlined into one review.
-    #[serde(default = "default_code_notes_bytes")]
-    pub code_notes_bytes: usize,
     /// How much of each selected unit note a review gets.
     #[serde(default)]
     pub code_notes_scope: CodeNotesScope,
@@ -1019,10 +1016,6 @@ pub enum CodeNotesScope {
     /// Only the rules that name an identifier the patch's diff touches,
     /// with the note's title and introduction.
     Touched,
-}
-
-fn default_code_notes_bytes() -> usize {
-    48 * 1024
 }
 
 fn default_max_total_tokens() -> usize {

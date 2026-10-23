@@ -36,8 +36,6 @@ pub const PROFILE_RELPATH: &str = "notes/profile.toml";
 const DEFAULT_COMPONENT_LINES: usize = 15_000;
 /// Default byte budget of one rendered unit note.
 const DEFAULT_UNIT_NOTE_BYTES: usize = 16 * 1024;
-/// Default byte budget of all notes loaded into one review.
-const DEFAULT_REVIEW_NOTES_BYTES: usize = 48 * 1024;
 /// Deepest directory level the `directories` unit source may split at.
 const MAX_DIRECTORY_DEPTH: usize = 4;
 
@@ -153,13 +151,13 @@ pub struct LanguagesConfig {
     pub skip: Vec<String>,
 }
 
-/// Size limits that bound exploration and the rendered notes.
+/// Size limits that bound exploration and the rendered notes at generation
+/// time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Limits {
     pub component_lines: usize,
     pub unit_note_bytes: usize,
-    pub review_notes_bytes: usize,
 }
 
 impl Default for Limits {
@@ -167,7 +165,6 @@ impl Default for Limits {
         Self {
             component_lines: DEFAULT_COMPONENT_LINES,
             unit_note_bytes: DEFAULT_UNIT_NOTE_BYTES,
-            review_notes_bytes: DEFAULT_REVIEW_NOTES_BYTES,
         }
     }
 }

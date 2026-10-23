@@ -592,10 +592,7 @@ async fn review_single_patch(
                 skip_report: options.agent,
                 report_preexisting: options.report_preexisting,
                 effort: settings.effective_effort(),
-                code_notes_bytes: settings
-                    .review
-                    .use_code_notes
-                    .then_some(settings.review.code_notes_bytes),
+                use_code_notes: settings.review.use_code_notes,
                 code_notes_scope: settings.review.code_notes_scope,
             },
         );

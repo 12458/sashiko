@@ -32,4 +32,3 @@ max_cases = 60
 [limits]
 component_lines = 15000
 unit_note_bytes = 16384
-review_notes_bytes = 49152
