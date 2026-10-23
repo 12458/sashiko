@@ -100,8 +100,8 @@ pub fn assign_units(source: &dyn UnitSource, files: &[SourceFile]) -> UnitAssign
     UnitAssignment { units, unassigned }
 }
 
-/// Lowercase ASCII slug for a unit name, made unique within one assignment.
-fn unique_slug(name: &str, used: &mut HashSet<String>) -> String {
+/// Lowercase ASCII slug for a unit or component name, made unique within `used`.
+pub fn unique_slug(name: &str, used: &mut HashSet<String>) -> String {
     let mut base = String::new();
     for ch in name.chars() {
         if ch.is_ascii_alphanumeric() {

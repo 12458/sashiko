@@ -56,6 +56,48 @@ pub async fn unit_history(
     fix_patterns: &[String],
     max_cases: usize,
 ) -> Result<Vec<HistoryCase>> {
+    let found = collect_fix_commits(repo, revision, files, fix_patterns, max_cases).await?;
+    hydrate_history_cases(repo, found, files).await
+}
+
+/// Mines up to `max_cases_per_component` recent fixes for each component in
+/// `component_files`, deduplicates fix commits across components, and hydrates
+/// each fix against `scope_files` (all files of the unit) so fixes touching
+/// multiple components retain all touched unit files for lesson placement.
+pub async fn multi_component_unit_history(
+    repo: &Path,
+    revision: &str,
+    component_files: &[Vec<String>],
+    scope_files: &[String],
+    fix_patterns: &[String],
+    max_cases_per_component: usize,
+) -> Result<Vec<HistoryCase>> {
+    if fix_patterns.is_empty() || component_files.is_empty() || max_cases_per_component == 0 {
+        return Ok(Vec::new());
+    }
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+    for files in component_files {
+        let comp_found =
+            collect_fix_commits(repo, revision, files, fix_patterns, max_cases_per_component)
+                .await?;
+        for item in comp_found {
+            if seen.insert(item.1.clone()) {
+                merged.push(item);
+            }
+        }
+    }
+    merged.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    hydrate_history_cases(repo, merged, scope_files).await
+}
+
+async fn collect_fix_commits(
+    repo: &Path,
+    revision: &str,
+    files: &[String],
+    fix_patterns: &[String],
+    max_cases: usize,
+) -> Result<Vec<(i64, String, String)>> {
     if fix_patterns.is_empty() || files.is_empty() || max_cases == 0 {
         return Ok(Vec::new());
     }
@@ -91,16 +133,22 @@ pub async fn unit_history(
             }
         }
     }
-    // Newest first across chunks, then keep the window.
     found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     found.truncate(max_cases);
+    Ok(found)
+}
 
-    let unit_set: HashSet<&str> = files.iter().map(String::as_str).collect();
+async fn hydrate_history_cases(
+    repo: &Path,
+    found: Vec<(i64, String, String)>,
+    scope_files: &[String],
+) -> Result<Vec<HistoryCase>> {
+    let unit_set: HashSet<&str> = scope_files.iter().map(String::as_str).collect();
     let mut cases = Vec::new();
     for (time, sha, subject) in found {
         let message = git_text(repo, &["log", "-1", "--format=%B", &sha]).await?;
         let mut diff_args = vec!["show", "--format=", "--no-color", sha.as_str(), "--"];
-        let unit_files: Vec<&str> = files.iter().map(String::as_str).collect();
+        let unit_files: Vec<&str> = scope_files.iter().map(String::as_str).collect();
         // The diff is restricted to the unit's files; very large units fall
         // back to the whole diff rather than exceeding argument limits.
         if unit_files.len() <= PATHS_PER_CALL {
@@ -228,5 +276,52 @@ mod tests {
     fn test_truncate_chars() {
         assert_eq!(truncate_chars("abc", 5), "abc");
         assert_eq!(truncate_chars("abcdef", 3), "abc\n[truncated]");
+    }
+
+    #[tokio::test]
+    async fn test_multi_component_unit_history_preserves_cross_component_files() {
+        let dir = tempfile::tempdir().unwrap();
+        test_repo::commit_files(
+            dir.path(),
+            &[
+                ("net/a.c", "int a;\n"),
+                ("net/b.c", "int b;\n"),
+                ("mm/c.c", "int c;\n"),
+            ],
+        );
+        let git = |args: &[&str]| {
+            let out = crate::git_cmd::in_dir(dir.path())
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+            String::from_utf8(out.stdout).unwrap()
+        };
+        std::fs::write(dir.path().join("net/a.c"), "int a = 1;\n").unwrap();
+        std::fs::write(dir.path().join("net/b.c"), "int b = 1;\n").unwrap();
+        std::fs::write(dir.path().join("mm/c.c"), "int c = 1;\n").unwrap();
+        git(&[
+            "commit",
+            "-qam",
+            "net: fix across components\n\nFixes: 1234567890ab (\"net: init\")",
+        ]);
+        let rev = git(&["rev-parse", "HEAD"]).trim().to_string();
+
+        let comp_files = vec![vec!["net/a.c".to_string()], vec!["net/b.c".to_string()]];
+        let scope_files = vec!["net/a.c".to_string(), "net/b.c".to_string()];
+        let patterns = vec!["^Fixes: [0-9a-f]{8,}".to_string()];
+        let cases =
+            multi_component_unit_history(dir.path(), &rev, &comp_files, &scope_files, &patterns, 5)
+                .await
+                .unwrap();
+        assert_eq!(cases.len(), 1);
+        assert_eq!(
+            cases[0].files,
+            vec!["net/a.c".to_string(), "net/b.c".to_string()]
+        );
+        assert!(cases[0].diff.contains("int a = 1;"));
+        assert!(cases[0].diff.contains("int b = 1;"));
+        assert!(!cases[0].diff.contains("mm/c.c"));
     }
 }

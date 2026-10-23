@@ -25,7 +25,7 @@
 //! can tell what changed), the symbols its facts are about, and how and when
 //! it was built.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -146,6 +146,58 @@ pub fn write_unit(
         format!("{}\n", serde_json::to_string_pretty(facts)?).as_bytes(),
     )?;
     manifest.units.insert(slug.to_string(), entry);
+    let written = write_atomic(
+        &set_dir.join(MANIFEST_FILE),
+        format!("{}\n", serde_json::to_string_pretty(&manifest)?).as_bytes(),
+    );
+    drop(lock);
+    written
+}
+
+/// Removes stale manifest entries and unit files for `unit_slug`. When
+/// `prune_children` is true (a full unit build), both the unsplit
+/// `<unit_slug>` entry and any `<unit_slug>--*` component entry not in
+/// `active_slugs` are removed; when `prune_children` is false (a partial
+/// component-filtered rebuild), only a legacy unsplit `<unit_slug>` entry is
+/// removed so unselected sibling components remain intact.
+pub fn prune_stale_unit_entries(
+    set_dir: &Path,
+    unit_slug: &str,
+    active_slugs: &HashSet<String>,
+    prune_children: bool,
+) -> Result<()> {
+    let units_dir = set_dir.join(UNITS_DIR);
+    let lock_path = set_dir.join(LOCK_FILE);
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .with_context(|| format!("failed to open {}", lock_path.display()))?;
+    lock.lock()
+        .with_context(|| format!("failed to lock {}", lock_path.display()))?;
+
+    let Some(mut manifest) = Manifest::load(set_dir)? else {
+        return Ok(());
+    };
+    let prefix = format!("{unit_slug}--");
+    let stale: Vec<String> = manifest
+        .units
+        .keys()
+        .filter(|k| {
+            let matches_scope = *k == unit_slug || (prune_children && k.starts_with(&prefix));
+            matches_scope && !active_slugs.contains(k.as_str())
+        })
+        .cloned()
+        .collect();
+    if stale.is_empty() {
+        return Ok(());
+    }
+    for slug in stale {
+        manifest.units.remove(&slug);
+        let _ = std::fs::remove_file(units_dir.join(format!("{slug}.md")));
+        let _ = std::fs::remove_file(units_dir.join(format!("{slug}.facts.json")));
+    }
     let written = write_atomic(
         &set_dir.join(MANIFEST_FILE),
         format!("{}\n", serde_json::to_string_pretty(&manifest)?).as_bytes(),
@@ -287,5 +339,36 @@ mod tests {
         }
         let manifest = Manifest::load(dir.path()).unwrap().unwrap();
         assert_eq!(manifest.units.len(), 8);
+    }
+
+    #[test]
+    fn test_prune_stale_unit_entries_preserves_siblings_on_partial_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = ("sashiko", "dev", "r1");
+        for slug in ["net", "net--core", "net--sock", "other"] {
+            write_unit(
+                dir.path(),
+                header,
+                slug,
+                "# note\n",
+                &facts(slug),
+                entry(slug),
+            )
+            .unwrap();
+        }
+        let active = HashSet::from(["net--core".to_string()]);
+        prune_stale_unit_entries(dir.path(), "net", &active, false).unwrap();
+        let manifest = Manifest::load(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            manifest.units.keys().collect::<Vec<_>>(),
+            vec!["net--core", "net--sock", "other"]
+        );
+
+        prune_stale_unit_entries(dir.path(), "net", &active, true).unwrap();
+        let manifest = Manifest::load(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            manifest.units.keys().collect::<Vec<_>>(),
+            vec!["net--core", "other"]
+        );
     }
 }

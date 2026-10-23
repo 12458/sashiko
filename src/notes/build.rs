@@ -32,21 +32,24 @@ use crate::notes::agenda::Agenda;
 use crate::notes::agenda::Topic;
 use crate::notes::evidence::RevisionFiles;
 use crate::notes::facts::{FactVerdict, ReviewValue, VerdictKind, VerifiedFact};
-use crate::notes::history::{HistoryCase, unit_history};
-use crate::notes::output::{ManifestFile, ManifestUnit, UnitFacts, write_unit};
+use crate::notes::history::{HistoryCase, multi_component_unit_history, unit_history};
+use crate::notes::output::{
+    ManifestFile, ManifestUnit, UnitFacts, prune_stale_unit_entries, write_unit,
+};
 use crate::notes::plan::UnitPlan;
 use crate::notes::profile::HistoryConfig;
 use crate::notes::rule_comments::rule_comments;
+use crate::notes::units::unique_slug;
 use crate::workflow::output::parse_json_from_text;
 use crate::workflow::{Workflow, WorkflowEngine, WorkflowEnv, WorkflowOutcome};
 use crate::workflows::code_notes::{
     Applicability, CheckedFact, ComponentInput, EXPLORE_STAGE_NAMES, ExploreOutput, ExploreRecord,
     FileInput, HISTORY_BATCH_SIZE, HISTORY_STAGE_NAMES, HISTORY_TOPIC_ID, HistoryInput,
-    HistoryLesson, LessonKind, MAX_FACTS_PER_STAGE, NotesBuildState, PlacedLesson, SurveyOutput,
-    VERIFY_BATCH_SIZE, VERIFY_STAGE_NAMES, check_fact, dedup_stage, explore_stage, ground_symbols,
-    history_stage, history_topic, keep_representatives, lessons_for, neutralize_directives,
-    parallel_workflow, renumber_facts, single_stage_workflow, survey_stage, synthesize_stage,
-    verdicts_by_id, verify_stage,
+    HistoryLesson, LessonKind, MAX_FACTS_PER_STAGE, NotesBuildState, PlacedLesson,
+    SYNTH_STAGE_NAMES, SurveyOutput, VERIFY_BATCH_SIZE, VERIFY_STAGE_NAMES, check_fact,
+    dedup_stage, explore_stage, ground_symbols, history_stage, history_topic, keep_representatives,
+    lessons_for, neutralize_directives, parallel_workflow, renumber_facts, single_stage_workflow,
+    survey_stage, synthesize_component_stage, synthesize_stage, verdicts_by_id, verify_stage,
 };
 
 /// Rule comments shown to the explorers of one component.
@@ -445,100 +448,120 @@ pub async fn build_unit(
     let confirmed = noted_facts(&verified);
     summary.not_patch_rules = summary.confirmed - confirmed.len();
 
-    // 6. Synthesize the note.
-    let saved_note = load_text(&work, "note.md", cfg.resume)?;
-    let note = match saved_note.filter(|_| !extended) {
-        Some(saved) => saved,
-        None => {
-            let note = if confirmed.is_empty() {
-                format!(
-                    "# {}\n\nNo verified facts were established for this unit at {}.\n",
-                    unit.name, cfg.revision
-                )
-            } else {
-                let (facts_json, ids) = synthesis_input(&confirmed);
-                let workflow = single_stage_workflow(
-                    "notes_synthesize",
-                    synthesize_stage(
-                        facts_json,
-                        survey_summaries(&survey),
-                        ids,
-                        cfg.note_bytes,
-                        cfg.temperature,
-                    ),
-                );
-                match run_step(
-                    &workflow,
-                    env,
-                    &mut state,
-                    &work,
-                    "synthesize",
-                    &mut summary.usage,
-                )
-                .await
-                {
-                    Ok(_) => state
-                        .note
-                        .clone()
-                        .context("the synthesize stage produced no note")?,
-                    Err(err) => {
-                        warn!(
-                            "{}: synthesis failed, writing the fallback note: {err:#}",
-                            unit.name
-                        );
-                        summary.synthesis_fallback = true;
-                        fallback_note(&unit.name, &survey, &confirmed, cfg.note_bytes)
+    // 6 & 7. Synthesize and write into the set (one note for single-component
+    // units; one note per component for multi-component units so large units
+    // do not compress multiple components into a single 16 KB file).
+    let all_files = blob_ids(repo, &cfg.revision, unit).await?;
+    if !unit.is_split_unit() {
+        let saved_note = load_text(&work, "note.md", cfg.resume)?;
+        let note = match saved_note.filter(|_| !extended) {
+            Some(saved) => saved,
+            None => {
+                let note = if confirmed.is_empty() {
+                    format!(
+                        "# {}\n\nNo verified facts were established for this unit at {}.\n",
+                        unit.name, cfg.revision
+                    )
+                } else {
+                    let (facts_json, ids) = synthesis_input(&confirmed);
+                    let workflow = single_stage_workflow(
+                        "notes_synthesize",
+                        synthesize_stage(
+                            facts_json,
+                            survey_summaries(&survey),
+                            ids,
+                            cfg.note_bytes,
+                            cfg.temperature,
+                        ),
+                    );
+                    match run_step(
+                        &workflow,
+                        env,
+                        &mut state,
+                        &work,
+                        "synthesize",
+                        &mut summary.usage,
+                    )
+                    .await
+                    {
+                        Ok(_) => state
+                            .note
+                            .clone()
+                            .context("the synthesize stage produced no note")?,
+                        Err(err) => {
+                            warn!(
+                                "{}: synthesis failed, writing the fallback note: {err:#}",
+                                unit.name
+                            );
+                            summary.synthesis_fallback = true;
+                            fallback_note(&unit.name, &survey, &confirmed, cfg.note_bytes)
+                        }
                     }
-                }
-            };
-            let note = format!("{}\n", neutralize_directives(note.trim_end()));
-            std::fs::write(work.join("note.md"), &note)?;
-            note
-        }
-    };
-    summary.note_bytes = note.len();
+                };
+                let note = format!("{}\n", neutralize_directives(note.trim_end()));
+                std::fs::write(work.join("note.md"), &note)?;
+                note
+            }
+        };
+        summary.note_bytes = note.len();
 
-    // 7. Write the unit into the set.
-    let symbols: BTreeSet<String> = confirmed
-        .iter()
-        .flat_map(|v| v.fact.scope.symbols.iter().cloned())
-        .collect();
-    let files = blob_ids(repo, &cfg.revision, unit).await?;
-    let entry = ManifestUnit {
-        name: unit.name.clone(),
-        note: format!("units/{}.md", unit.slug),
-        facts: format!("units/{}.facts.json", unit.slug),
-        agenda_version: agenda.version.clone(),
-        model: cfg.model.clone(),
-        built_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        note_bytes: note.len(),
-        confirmed_facts: confirmed.len(),
-        files,
-        symbols: symbols.into_iter().collect(),
-    };
-    let unit_facts = UnitFacts {
-        unit: unit.name.clone(),
-        revision: cfg.revision.clone(),
-        facts: verified.clone(),
-        dismissed_hypotheses: state
-            .explored
+        let symbols: BTreeSet<String> = confirmed
             .iter()
-            .flat_map(|r| r.output.dismissed_hypotheses.iter().cloned())
-            .collect(),
-        open_questions: state
-            .explored
-            .iter()
-            .flat_map(|r| r.output.open_questions.iter().cloned())
-            .collect(),
-    };
-    write_unit(
-        &cfg.set_dir,
-        (&cfg.project, &cfg.set_id, &cfg.revision),
-        &unit.slug,
-        &note,
-        &unit_facts,
-        entry,
-    )?;
+            .flat_map(|v| v.fact.scope.symbols.iter().cloned())
+            .collect();
+        let entry = ManifestUnit {
+            name: unit.name.clone(),
+            note: format!("units/{}.md", unit.slug),
+            facts: format!("units/{}.facts.json", unit.slug),
+            agenda_version: agenda.version.clone(),
+            model: cfg.model.clone(),
+            built_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            note_bytes: note.len(),
+            confirmed_facts: confirmed.len(),
+            files: all_files,
+            symbols: symbols.into_iter().collect(),
+        };
+        let unit_facts = UnitFacts {
+            unit: unit.name.clone(),
+            revision: cfg.revision.clone(),
+            facts: verified.clone(),
+            dismissed_hypotheses: state
+                .explored
+                .iter()
+                .flat_map(|r| r.output.dismissed_hypotheses.iter().cloned())
+                .collect(),
+            open_questions: state
+                .explored
+                .iter()
+                .flat_map(|r| r.output.open_questions.iter().cloned())
+                .collect(),
+        };
+        write_unit(
+            &cfg.set_dir,
+            (&cfg.project, &cfg.set_id, &cfg.revision),
+            &unit.slug,
+            &note,
+            &unit_facts,
+            entry,
+        )?;
+        let active = HashSet::from([unit.slug.clone()]);
+        prune_stale_unit_entries(&cfg.set_dir, &unit.slug, &active, true)?;
+    } else {
+        synthesize_and_write_components(
+            env,
+            agenda,
+            unit,
+            cfg,
+            &work,
+            &survey,
+            &verified,
+            &all_files,
+            extended,
+            &mut state,
+            &mut summary,
+        )
+        .await?;
+    }
     save_step(&work, "summary", &summary)?;
     info!(
         "{}: {} facts proposed, {} confirmed, {} refuted, {} unverifiable; note {} bytes; {} tokens in",
@@ -553,6 +576,182 @@ pub async fn build_unit(
     Ok(summary)
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn synthesize_and_write_components(
+    env: &WorkflowEnv<'_>,
+    agenda: &Agenda,
+    unit: &UnitPlan,
+    cfg: &BuildConfig,
+    work: &Path,
+    survey: &SurveyOutput,
+    verified: &[VerifiedFact],
+    all_files: &[ManifestFile],
+    extended: bool,
+    state: &mut NotesBuildState,
+    summary: &mut UnitBuildSummary,
+) -> Result<()> {
+    let notes_dir = work.join("notes");
+    std::fs::create_dir_all(&notes_dir)
+        .with_context(|| format!("failed to create {}", notes_dir.display()))?;
+
+    let precomputed_slugs = unit.component_slug_map();
+    let mut used_comp_slugs: HashSet<String> = precomputed_slugs.values().cloned().collect();
+    let mut comp_meta = Vec::new();
+    let mut pending_stages = Vec::new();
+
+    for comp in &unit.components {
+        let comp_slug = precomputed_slugs
+            .get(&comp.name)
+            .cloned()
+            .unwrap_or_else(|| unique_slug(&comp.name, &mut used_comp_slugs));
+        let entry_slug = format!("{}--{}", unit.slug, comp_slug);
+        let title = format!("{} — {}", unit.name, comp.name);
+        let note_rel = format!("notes/{comp_slug}.md");
+        let comp_verified: Vec<VerifiedFact> = verified
+            .iter()
+            .filter(|v| v.component == comp.name)
+            .cloned()
+            .collect();
+        let comp_confirmed: Vec<&VerifiedFact> = noted_facts(&comp_verified);
+        let comp_survey = SurveyOutput {
+            components: survey
+                .components
+                .iter()
+                .filter(|c| c.name == comp.name)
+                .cloned()
+                .collect(),
+        };
+        let saved = load_text(work, &note_rel, cfg.resume)?.filter(|_| !extended);
+        if let Some(saved_note) = saved {
+            state.component_notes.insert(comp.name.clone(), saved_note);
+        } else if comp_confirmed.is_empty() {
+            let empty_note = format!(
+                "# {title}\n\nNo verified facts were established for this component at {}.\n",
+                cfg.revision
+            );
+            state.component_notes.insert(comp.name.clone(), empty_note);
+        } else {
+            let (facts_json, ids) = synthesis_input(&comp_confirmed);
+            let summaries = survey_summaries(&comp_survey);
+            pending_stages.push((comp.name.clone(), title.clone(), facts_json, summaries, ids));
+        }
+        comp_meta.push((
+            comp,
+            comp_slug,
+            entry_slug,
+            title,
+            note_rel,
+            comp_verified,
+            comp_survey,
+        ));
+    }
+
+    for (round, chunk) in pending_stages.chunks(SYNTH_STAGE_NAMES.len()).enumerate() {
+        let built = chunk
+            .iter()
+            .zip(SYNTH_STAGE_NAMES)
+            .map(
+                |((comp_name, title, facts_json, summaries, ids), stage_name)| {
+                    synthesize_component_stage(
+                        stage_name,
+                        comp_name.clone(),
+                        title.clone(),
+                        facts_json.clone(),
+                        summaries.clone(),
+                        ids.clone(),
+                        cfg.note_bytes,
+                        cfg.temperature,
+                    )
+                },
+            )
+            .collect();
+        let workflow = parallel_workflow("notes_synthesize", built);
+        let step = if pending_stages.len() <= SYNTH_STAGE_NAMES.len() {
+            "synthesize".to_string()
+        } else {
+            format!("synthesize-round-{}", round + 1)
+        };
+        if let Err(err) = run_step(&workflow, env, state, work, &step, &mut summary.usage).await {
+            warn!("{}: {step} had stage failures: {err:#}", unit.name);
+        }
+    }
+
+    let mut active_slugs = HashSet::new();
+    for (comp, _comp_slug, entry_slug, title, note_rel, comp_verified, comp_survey) in comp_meta {
+        let comp_confirmed = noted_facts(&comp_verified);
+        let raw_note = match state.component_notes.get(&comp.name) {
+            Some(n) => n.clone(),
+            None => {
+                warn!(
+                    "{} ({}): synthesis failed, writing the fallback note",
+                    unit.name, comp.name
+                );
+                summary.synthesis_fallback = true;
+                fallback_note(&title, &comp_survey, &comp_confirmed, cfg.note_bytes)
+            }
+        };
+        let note = format!("{}\n", neutralize_directives(raw_note.trim_end()));
+        std::fs::write(work.join(&note_rel), &note)?;
+        summary.note_bytes += note.len();
+
+        let comp_paths: HashSet<&str> = comp.files.iter().map(|f| f.path.as_str()).collect();
+        let files: Vec<ManifestFile> = all_files
+            .iter()
+            .filter(|f| comp_paths.contains(f.path.as_str()))
+            .cloned()
+            .collect();
+        let symbols: BTreeSet<String> = comp_confirmed
+            .iter()
+            .flat_map(|v| v.fact.scope.symbols.iter().cloned())
+            .collect();
+        let entry = ManifestUnit {
+            name: title.clone(),
+            note: format!("units/{entry_slug}.md"),
+            facts: format!("units/{entry_slug}.facts.json"),
+            agenda_version: agenda.version.clone(),
+            model: cfg.model.clone(),
+            built_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            note_bytes: note.len(),
+            confirmed_facts: comp_confirmed.len(),
+            files,
+            symbols: symbols.into_iter().collect(),
+        };
+        let unit_facts = UnitFacts {
+            unit: title,
+            revision: cfg.revision.clone(),
+            facts: comp_verified,
+            dismissed_hypotheses: state
+                .explored
+                .iter()
+                .filter(|r| r.component == comp.name)
+                .flat_map(|r| r.output.dismissed_hypotheses.iter().cloned())
+                .collect(),
+            open_questions: state
+                .explored
+                .iter()
+                .filter(|r| r.component == comp.name)
+                .flat_map(|r| r.output.open_questions.iter().cloned())
+                .collect(),
+        };
+        write_unit(
+            &cfg.set_dir,
+            (&cfg.project, &cfg.set_id, &cfg.revision),
+            &entry_slug,
+            &note,
+            &unit_facts,
+            entry,
+        )?;
+        active_slugs.insert(entry_slug);
+    }
+    prune_stale_unit_entries(
+        &cfg.set_dir,
+        &unit.slug,
+        &active_slugs,
+        !unit.is_partial_selection(),
+    )?;
+    Ok(())
+}
+
 /// Mines the unit's past fixes and classifies them in parallel batches.
 /// Returns the code-bug lessons placed on the components their fixes
 /// touched, newest first.
@@ -565,19 +764,36 @@ async fn classify_history(
     work: &Path,
     summary: &mut UnitBuildSummary,
 ) -> Result<Vec<PlacedLesson>> {
-    let files: Vec<String> = unit
+    let all_files: Vec<String> = unit
         .components
         .iter()
         .flat_map(|c| c.files.iter().map(|f| f.path.clone()))
         .collect();
-    let cases = unit_history(
-        repo,
-        &cfg.revision,
-        &files,
-        &cfg.history.fix_patterns,
-        cfg.history.max_cases,
-    )
-    .await?;
+    let cases = if unit.components.len() <= 1 {
+        unit_history(
+            repo,
+            &cfg.revision,
+            &all_files,
+            &cfg.history.fix_patterns,
+            cfg.history.max_cases,
+        )
+        .await?
+    } else {
+        let comp_files: Vec<Vec<String>> = unit
+            .components
+            .iter()
+            .map(|c| c.files.iter().map(|f| f.path.clone()).collect())
+            .collect();
+        multi_component_unit_history(
+            repo,
+            &cfg.revision,
+            &comp_files,
+            &all_files,
+            &cfg.history.fix_patterns,
+            cfg.history.max_cases,
+        )
+        .await?
+    };
     summary.history_cases = cases.len();
     if cases.is_empty() {
         return Ok(Vec::new());
@@ -855,24 +1071,46 @@ fn fallback_note(
         note.push_str(&component.summary);
         note.push('\n');
     }
-    for heading in HEADINGS {
-        let facts: Vec<&&VerifiedFact> = confirmed
-            .iter()
-            .filter(|v| v.fact.kind.heading() == *heading)
-            .collect();
-        if facts.is_empty() {
-            continue;
+    let buckets: Vec<Vec<&&VerifiedFact>> = HEADINGS
+        .iter()
+        .map(|h| {
+            confirmed
+                .iter()
+                .filter(|v| v.fact.kind.heading() == *h)
+                .collect()
+        })
+        .collect();
+    let mut chosen: Vec<Vec<String>> = vec![Vec::new(); HEADINGS.len()];
+    let mut used_bytes = note.len();
+    let max_len = buckets.iter().map(Vec::len).max().unwrap_or(0);
+    for r in 0..max_len {
+        let mut added_any = false;
+        for (h_idx, bucket) in buckets.iter().enumerate() {
+            let Some(v) = bucket.get(r) else {
+                continue;
+            };
+            let bullet = format!("- {} [{}]\n", v.fact.statement.trim(), v.fact.id);
+            let header_cost = if chosen[h_idx].is_empty() {
+                format!("\n## {}\n\n", HEADINGS[h_idx]).len()
+            } else {
+                0
+            };
+            if used_bytes + header_cost + bullet.len() <= max_bytes {
+                used_bytes += header_cost + bullet.len();
+                chosen[h_idx].push(bullet);
+                added_any = true;
+            }
         }
-        let section = format!("\n## {heading}\n\n");
-        if note.len() + section.len() > max_bytes {
+        if !added_any {
             break;
         }
-        note.push_str(&section);
-        for v in facts {
-            let bullet = format!("- {} [{}]\n", v.fact.statement.trim(), v.fact.id);
-            if note.len() + bullet.len() > max_bytes {
-                return note;
-            }
+    }
+    for (heading, bullets) in HEADINGS.iter().zip(chosen) {
+        if bullets.is_empty() {
+            continue;
+        }
+        note.push_str(&format!("\n## {heading}\n\n"));
+        for bullet in bullets {
             note.push_str(&bullet);
         }
     }
@@ -1165,15 +1403,26 @@ mod tests {
             lines: 10,
             entry_points: vec![],
         };
-        let unit = UnitPlan {
+        let mut unit = UnitPlan {
             name: "net".to_string(),
             slug: "net".to_string(),
             files: 2,
             lines: 20,
             shared_files: 0,
             components: vec![component("a", "net/a.c"), component("b", "net/b.c")],
+            all_component_names: vec!["a".to_string(), "b".to_string()],
             estimated_input_tokens: TokenEstimate::default(),
         };
+        assert!(unit.is_split_unit());
+        assert!(!unit.is_partial_selection());
+        let filtered = UnitPlan {
+            components: vec![unit.components[1].clone()],
+            ..unit.clone()
+        };
+        assert!(filtered.is_split_unit());
+        assert!(filtered.is_partial_selection());
+        assert_eq!(filtered.component_slug_map().get("b").unwrap(), "b");
+        unit.all_component_names = vec!["a".to_string(), "b".to_string()];
         let case = |sha: &str, files: &[&str]| HistoryCase {
             fix: sha.to_string(),
             time: 0,

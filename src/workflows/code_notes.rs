@@ -21,7 +21,7 @@
 //! state. The build driver (`notes::build`) runs them as separate
 //! workflows so each step's results can be saved and resumed.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -146,6 +146,24 @@ pub const VERIFY_STAGE_NAMES: &[&str] = &[
     "verify-31",
     "verify-32",
 ];
+pub const SYNTH_STAGE_NAMES: &[&str] = &[
+    "synthesize-1",
+    "synthesize-2",
+    "synthesize-3",
+    "synthesize-4",
+    "synthesize-5",
+    "synthesize-6",
+    "synthesize-7",
+    "synthesize-8",
+    "synthesize-9",
+    "synthesize-10",
+    "synthesize-11",
+    "synthesize-12",
+    "synthesize-13",
+    "synthesize-14",
+    "synthesize-15",
+    "synthesize-16",
+];
 
 /// One source file of a component, as the stages see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,6 +268,7 @@ pub struct NotesBuildState {
     pub dedup: Option<DedupOutput>,
     pub verdicts: Vec<FactVerdict>,
     pub note: Option<String>,
+    pub component_notes: BTreeMap<String, String>,
 }
 
 const SYSTEM_PROMPT: &str = r##"You are a senior engineer building verified notes about the source code of the {{project}} project. An automated patch reviewer will read these notes while reviewing changes, so every statement must be true, specific and useful for catching real bugs.
@@ -671,13 +690,13 @@ Answer the questions by reading and tracing the code with the tools: follow call
 Report what a future patch to this component must preserve. A good fact:
 - is ONE sentence of at most {{max_statement_chars}} characters stating a rule a patch could break and a reviewer can check a diff against: an invariant, a locking or ordering rule, a lifetime rule, a contract that callers or implementers rely on, or a non-obvious pitfall. Name the concrete functions, types, fields, locks or files involved (name them; do not enumerate every member of a list);
 - has "violated_by": the shape of a patch that would break the rule, in at most {{max_violated_by_chars}} characters (for example "a new query that reads Bug::subsystems for authorization instead of calling authorizing_sections_for_bug"). If you cannot name a plausible patch that breaks it, it does not belong in the notes;
-- holds on every path at this revision; if it holds only under a condition, the condition is part of the sentence. "Always", "never", "only", "every" and "cannot" require that you checked every caller, path or variant (use git_grep);
+- holds on every path at this revision; if it holds only under a condition, the condition is part of the sentence. "Always", "never", "only", "every" and "cannot" require that you checked every caller, path or variant (use git_grep). When some in-tree callers follow a rule (such as taking a lock or calling a cleanup helper) and other callers safely omit it (for example during single-threaded initialization, before publication, or under an alternative lock), state BOTH the unsafe case and the safe precondition rather than an unqualified "always/never";
 - states mechanics, not motives: add a purpose or consequence ("so that", "which prevents", "because") only when a comment, test or the traced code shows it;
 - is not a defect report: do not report missing limits, inefficiencies, panics or other weaknesses of the current code. When existing code follows a pattern that new code must follow too (chunking, a helper that must be called, a check that must come first), state that pattern as the rule;
 - has a "basis" showing the rule matters: "comment" (a comment or doc states it), "test" (a test pins it), "past_fix" (a past fix restored it) or "failure_mode" (breaking it causes a concrete failure: a panic, deadlock, race, leak, corruption, a wrong result or a broken external contract), with a one-sentence "detail". Behavior nothing depends on, constants and incidental ordering are not rules;
 - states ONE rule: split a fact whose parts concern different symbols or would be broken by different patches;
 - is not enforced by the compiler or type system: if a violating patch would not build, drop the fact;
-- is not a description of what the code plainly does, a list of constants (unless the exact value is the contract), or generic advice ("inputs should be validated").
+- is not a description of what the code plainly does, a list of constants (unless the exact value is the contract), generic advice ("inputs should be validated"), or standard language/kernel trivia that any developer already knows (such as checking allocation return values for NULL or pairing basic lock/unlock calls) without a unit-specific contract or pitfall.
 
 Comments and documentation that say "must", "never", "only", "do not" or "so that" often state the rules that matter most. Those found in this component are listed under rule_comments (possibly truncated): read the ones that bear on this topic in context, check that the code upholds them, and report them.
 
@@ -1094,7 +1113,7 @@ const VERIFY_INSTRUCTION: &str = r##"Independently verify the following facts ab
 
 For EVERY fact, read the code yourself with the tools and decide:
 - "confirmed": the code proves the statement exactly as written, on every path it claims to cover. Check the claim's scope: words like "always", "never", "only" and "every" require checking all callers and paths (use git_grep). Give your own evidence: file, line range and a verbatim snippet.
-- "refuted": the code contradicts the statement, or the statement overgeneralizes. Give the counter-evidence.
+- "refuted": the code contradicts the statement, or the statement overgeneralizes (for example, an in-tree caller or path safely omits the claimed requirement during init, teardown, or under another lock, and the statement omits that precondition). Give the counter-evidence.
 - "unverifiable": you cannot establish it either way from the code.
 
 Check the fact's "basis" too: a cited comment or test must exist and say what is claimed, and a claimed failure must really follow from a patch like "violated_by". A fact whose basis does not hold, or that only restates behavior nothing depends on, is "refuted". When a fact says "every", "all paths" or names several call sites, list the matching call sites and check each one.
@@ -1104,9 +1123,9 @@ Check every clause separately. A stated purpose or consequence ("so that", "whic
 Do not give the statement the benefit of the doubt: confirming requires code that proves it, not the absence of counter-examples you happened to find.
 
 Also judge each fact's "review_value" for a reviewer of future patches:
-- "patch_rule": it states something a future patch must preserve, and its "violated_by" describes a plausible patch that would break it;
+- "patch_rule": it states a specific invariant, contract or pitfall of this unit that a future patch must preserve, and its "violated_by" describes a plausible patch that would break it;
 - "existing_weakness": it criticizes the current code (a missing limit, an inefficiency, a panic path) rather than stating what to preserve;
-- "description": it restates what the code plainly does, or lists values whose exact amounts are not a contract;
+- "description": it restates what the code plainly does, lists values whose exact amounts are not a contract, or states generic language/kernel trivia with no unit-specific rule;
 - "unknown": you cannot tell. A fact whose "evidence_checks" show a failed check cited code that does not exist at the cited place; confirm it only if you find correct evidence yourself.
 
 Return ONLY a JSON object with one verdict per fact:
@@ -1197,9 +1216,9 @@ Rules:
 - Then these headings, in this order, omitting any heading with no facts: "## Architecture & Data Flow", "## Synchronization", "## Object Lifetimes", "## API Contracts", "## Error Handling", "## External Contracts", "## Known Pitfalls", "## Other". The heading of each fact is given with it.
 - Each rule appears exactly ONCE in the whole note, under the single heading that fits it best. Facts from different topics often restate the same rule in different words: merge them into one bullet and cite all of them.
 - One bullet per rule, at most {{max_bullet_chars}} characters including its citation. When the change that breaks a rule is not obvious from the rule, end the bullet with that change in a few words, from the facts' "violated_by" (for example "Broken by: awaiting while holding pool_lock."). Name the functions, types and locks involved, but do not list every argument or variable when the rule is clear without them. End every bullet with the IDs of the facts it comes from, like [F3] or [F3, F9].
-- Lead with what a reviewer could get wrong: rules whose violation would be a bug, implicit contracts, and pitfalls. Rules that merely describe what the code obviously does come last or are dropped.
+- Lead with what a reviewer could get wrong: rules whose violation would be a bug, implicit contracts, and pitfalls.
 - State only what the facts state. Do not add claims, advice or examples of your own, and do not drop a fact's conditions.
-- No code blocks. Keep the note proportional to the unit: a small module needs only a few bullets. Never exceed {{max_bytes}} bytes, which holds about {{max_bullets}} bullets: with more facts than that, merge related rules and drop the least important ones first, and plan the cut before writing rather than trimming afterwards.
+- No code blocks. Keep the note proportional to the unit: a small module needs only a few bullets. Never exceed {{max_bytes}} bytes, which holds about {{max_bullets}} bullets: when there are many facts, compress prose tightly and merge related rules sharing a function, struct, lock or lifecycle into dense combined bullets citing all merged fact IDs (`[F3, F9]`), dropping only redundant or low-signal facts when compression alone cannot fit the budget.
 
 Return ONLY the markdown note."###;
 
@@ -1251,6 +1270,67 @@ pub fn synthesize_stage(
         .build()
 }
 
+/// One component's synthesize stage in a multi-component unit build,
+/// storing the validated note under `component_name` in `state.component_notes`.
+#[allow(clippy::too_many_arguments)]
+pub fn synthesize_component_stage(
+    stage_name: &'static str,
+    component_name: String,
+    title: String,
+    facts_json: String,
+    summaries: String,
+    fact_ids: Vec<String>,
+    max_bytes: usize,
+    temperature: f32,
+) -> Box<dyn ExecutableStage<NotesBuildState>> {
+    let known: HashSet<String> = fact_ids.into_iter().collect();
+    let title_for_prompt = title.clone();
+    let title_for_validator = title;
+    Box::new(
+        Stage::builder(stage_name)
+            .system_prompt(system_prompt())
+            .user_prompt(
+                PromptTemplate::new(SYNTH_INSTRUCTION)
+                    .with_var("unit", move |_: &NotesBuildState| title_for_prompt.clone())
+                    .with_var("project", |s: &NotesBuildState| s.project.clone())
+                    .with_var("revision", |s: &NotesBuildState| s.revision.clone())
+                    .with_var("summaries", move |_: &NotesBuildState| summaries.clone())
+                    .with_var("facts", move |_: &NotesBuildState| facts_json.clone())
+                    .with_var("max_bytes", move |_: &NotesBuildState| {
+                        target_bytes(max_bytes).to_string()
+                    })
+                    .with_var("max_bullets", move |_: &NotesBuildState| {
+                        (target_bytes(max_bytes) / TYPICAL_BULLET_BYTES)
+                            .max(1)
+                            .to_string()
+                    })
+                    .with_var("max_bullet_chars", |_: &NotesBuildState| {
+                        MAX_BULLET_CHARS.to_string()
+                    }),
+            )
+            .output_format(OutputFormat::text_with_validator(
+                move |text: &str, _: &NotesBuildState| {
+                    validate_note(text, &title_for_validator, &known, max_bytes)
+                },
+                |err| {
+                    format!(
+                        "Your note was rejected: {err}\nFix exactly that and return the whole note again."
+                    )
+                },
+            ))
+            .policy(StagePolicy {
+                max_validation_attempts: SYNTH_VALIDATION_ATTEMPTS,
+                ..policy(SYNTH_VALIDATION_ATTEMPTS, temperature, ToolScope::None)
+            })
+            .reduce(move |state: &mut NotesBuildState, out: String| {
+                state
+                    .component_notes
+                    .insert(component_name.clone(), strip_code_fence(&out));
+            })
+            .build(),
+    )
+}
+
 /// Breaks up prompt-template syntax in a note. Notes reach review prompts
 /// as variable values, which are not expanded, but a unit about a prompt
 /// engine legitimately names its directives, and a note must stay inert
@@ -1287,7 +1367,7 @@ pub fn validate_note(
     if note.len() > max_bytes {
         let target = target_bytes(max_bytes);
         return Err(format!(
-            "the note is {} bytes; keep it under {target}. Cut at least {} bytes ({}%) by dropping the least important rules and merging related ones",
+            "the note is {} bytes; keep it under {target}. Cut at least {} bytes ({}%) by compressing prose, merging related facts into shared bullets ([F1, F2]), and dropping only the lowest-signal rules",
             note.len(),
             note.len() - target,
             ((note.len() - target) * 100).div_ceil(note.len())

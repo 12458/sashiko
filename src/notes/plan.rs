@@ -72,7 +72,49 @@ pub struct UnitPlan {
     pub lines: usize,
     pub shared_files: usize,
     pub components: Vec<ComponentPlan>,
+    /// Full pre-filter component names in deterministic plan order, preserved
+    /// when CLI `--component` or `--select` retains a subset of `components`.
+    #[serde(skip)]
+    pub all_component_names: Vec<String>,
     pub estimated_input_tokens: TokenEstimate,
+}
+
+impl UnitPlan {
+    /// Returns whether this unit is split into multiple components in the full
+    /// plan, even if CLI filtering retained only one component.
+    pub fn is_split_unit(&self) -> bool {
+        if self.all_component_names.is_empty() {
+            self.components.len() > 1
+        } else {
+            self.all_component_names.len() > 1
+        }
+    }
+
+    /// Returns whether `components` holds a strict subset of the unit's full
+    /// component list due to CLI component filtering.
+    pub fn is_partial_selection(&self) -> bool {
+        !self.all_component_names.is_empty()
+            && self.components.len() < self.all_component_names.len()
+    }
+
+    /// Maps every component name to its deterministic component slug using the
+    /// full pre-filter component ordering.
+    pub fn component_slug_map(&self) -> HashMap<String, String> {
+        let mut used = std::collections::HashSet::new();
+        let mut map = HashMap::new();
+        if self.all_component_names.is_empty() {
+            for c in &self.components {
+                let slug = crate::notes::units::unique_slug(&c.name, &mut used);
+                map.insert(c.name.clone(), slug);
+            }
+        } else {
+            for name in &self.all_component_names {
+                let slug = crate::notes::units::unique_slug(name, &mut used);
+                map.insert(name.clone(), slug);
+            }
+        }
+        map
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -245,6 +287,7 @@ fn plan_unit(
     let estimated_input_tokens = components.iter().fold(TokenEstimate::default(), |acc, c| {
         acc.add(TokenEstimate::for_component(c.lines))
     });
+    let all_component_names = components.iter().map(|c| c.name.clone()).collect();
     UnitPlan {
         name: unit.name.clone(),
         slug: unit.slug.clone(),
@@ -252,6 +295,7 @@ fn plan_unit(
         lines: unit.lines(),
         shared_files: unit.shared.len(),
         components,
+        all_component_names,
         estimated_input_tokens,
     }
 }
